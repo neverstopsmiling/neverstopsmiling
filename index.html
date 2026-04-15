@@ -452,6 +452,14 @@
       this.setupInput();
       this.resetRun();
 
+      // Start on title screen instead of playing immediately.
+      this.state = "title";
+      this.showTitleScreen();
+
+      // P / Esc to pause during play
+      this.input.keyboard.on("keydown-P", () => this.togglePause());
+      this.input.keyboard.on("keydown-ESC", () => this.togglePause());
+
       this.scale.on("resize", this.onResize, this);
 
       // Hide boot overlay now that Phaser is alive.
@@ -944,6 +952,8 @@
       this.gameOver = false;
       this.gameOverOverlay = null;
       this.runStartTime = this.time.now;
+      this.hintUntil = this.time.now + 5500; // hint auto-hides
+      this.hintLabel = null;
 
       // Combo + score
       this.score = 0;
@@ -1636,6 +1646,8 @@
       this.spawnLandParticles(p.x, floor.y, this.floorTheme(floor.n));
       const impact = Phaser.Math.Clamp((p.vy === 0 ? 0 : 0.5) + (p.prevY > floor.y ? (p.prevY - floor.y) / 200 : 0), 0, 1);
       this.audio.land(impact);
+      // Microinteraction: subtle camera shake on high-impact landings.
+      if (impact > 0.55) this.shakeCamera(0.004 + (impact - 0.55) * 0.01, 120);
 
       // --- Flip / somersault reward ---
       const flips = Math.max(0, Math.floor(Math.abs(p.rotation) / (Math.PI * 2)));
@@ -2758,7 +2770,274 @@
       g.fillRect(this.W - CFG.WALL_THICKNESS / 2, top, 1, h);
     }
 
+    // ---------------------------------------------------------------
+    // Title screen
+    // ---------------------------------------------------------------
+    showTitleScreen() {
+      if (this.titleOverlay) this.titleOverlay.destroy();
+      // Hide HUD + any reward popups etc. while the title is up.
+      if (this.hud) this.hud.container.setVisible(false);
+
+      const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2400);
+
+      const dim = this.add.graphics();
+      dim.fillStyle(0x000000, 0.40);
+      dim.fillRect(0, 0, this.W, this.H);
+      g.add(dim);
+
+      const cx = this.W / 2;
+      const S = Math.min(this.W, this.H);
+      const titleSize = Math.round(S * 0.17);
+      const subSize   = Math.round(S * 0.045);
+      const hintSize  = Math.round(S * 0.032);
+
+      // Big logo shadow
+      const logoShadow = this.add.text(cx + 4, S * 0.20 + 4, "FROSTSPIRE", {
+        fontFamily: "Courier New, monospace",
+        fontSize: titleSize + "px", fontStyle: "bold",
+        color: "#000000",
+      }).setOrigin(0.5);
+      logoShadow.setAlpha(0.7);
+      g.add(logoShadow);
+
+      const logo = this.add.text(cx, S * 0.20, "FROSTSPIRE", {
+        fontFamily: "Courier New, monospace",
+        fontSize: titleSize + "px", fontStyle: "bold",
+        color: "#9cd9ff", stroke: "#0b2848", strokeThickness: 8,
+      }).setOrigin(0.5);
+      g.add(logo);
+
+      const sub = this.add.text(cx, S * 0.20 + titleSize * 0.65, "A VERTICAL CLIMB", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(subSize * 0.75) + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
+        letterSpacing: 4,
+      }).setOrigin(0.5);
+      g.add(sub);
+
+      // Character preview in the middle of the screen
+      const previewY = this.H * 0.52;
+      const preview = this.drawCharacterPreview(this.characterId || "climber",
+        cx, previewY, Math.min(this.W, this.H) * 0.07);
+      g.add(preview);
+      this._titlePreview = preview;
+      this._titlePreviewId = this.characterId || "climber";
+
+      // Tap to start, with gentle pulsing
+      const tap = this.add.text(cx, this.H - S * 0.22, "TAP TO CLIMB", {
+        fontFamily: "Courier New, monospace",
+        fontSize: subSize + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 5,
+      }).setOrigin(0.5);
+      g.add(tap);
+      this._titleTapLabel = tap;
+
+      // Small buttons: CHARACTER, MUTE
+      const btnSize = Math.round(S * 0.035);
+      const makeMiniBtn = (yy, label, onPress) => {
+        const w = S * 0.30, h = btnSize * 2;
+        const bg = this.add.graphics();
+        bg.fillStyle(0x1a2540, 0.9);
+        bg.fillRoundedRect(cx - w / 2, yy - h / 2, w, h, 8);
+        bg.lineStyle(2, 0x9cd9ff, 1);
+        bg.strokeRoundedRect(cx - w / 2, yy - h / 2, w, h, 8);
+        g.add(bg);
+        const lbl = this.add.text(cx, yy, label, {
+          fontFamily: "Courier New, monospace",
+          fontSize: btnSize + "px", fontStyle: "bold",
+          color: "#fff",
+        }).setOrigin(0.5);
+        g.add(lbl);
+        const hit = this.add.zone(cx, yy, w, h).setOrigin(0.5)
+          .setInteractive({ useHandCursor: true });
+        g.add(hit);
+        hit.on("pointerdown", (_p, _x, _y, ev) => {
+          ev.stopPropagation && ev.stopPropagation();
+          onPress();
+        });
+      };
+      makeMiniBtn(this.H - S * 0.12, "CHARACTER", () => this.openCharacterSelect());
+
+      // Hints below
+      const hint = this.add.text(cx, this.H - S * 0.06,
+        "DESKTOP: \u2190 \u2192 / A D  +  SPACE     MOBILE: TILT  +  TAP", {
+        fontFamily: "Courier New, monospace",
+        fontSize: hintSize + "px",
+        color: "#9cd9ff", stroke: "#000", strokeThickness: 3,
+        align: "center",
+      }).setOrigin(0.5);
+      g.add(hint);
+
+      // Tap anywhere in the backdrop starts the game. We guard against
+      // taps landing on the buttons via a zone that sits BEHIND the
+      // foreground buttons (lower depth inside the container).
+      const backdropHit = this.add.zone(0, 0, this.W, this.H)
+        .setOrigin(0, 0).setInteractive();
+      g.addAt(backdropHit, 1);     // just above dim so FG clickables win
+      backdropHit.on("pointerdown", () => this.startFromTitle());
+
+      // Keyboard: any key begins
+      this._titleKeyHandler = () => this.startFromTitle();
+      this.input.keyboard.once("keydown-SPACE", this._titleKeyHandler);
+      this.input.keyboard.once("keydown-ENTER", this._titleKeyHandler);
+      this.input.keyboard.once("keydown-UP",    this._titleKeyHandler);
+
+      // Pulsing tap label tween (stored so we can kill it)
+      this._titleTween = this.tweens.add({
+        targets: tap, alpha: { from: 1, to: 0.35 },
+        duration: 600, yoyo: true, repeat: -1, ease: "Sine.InOut",
+      });
+
+      this.titleOverlay = g;
+    }
+
+    animateTitleScreen() {
+      // Refresh character preview if selection changed via overlay.
+      if (this._titlePreviewId !== (this.characterId || "climber")) {
+        if (this._titlePreview) { this._titlePreview.destroy(); this._titlePreview = null; }
+        const cx = this.W / 2;
+        const previewY = this.H * 0.52;
+        const preview = this.drawCharacterPreview(this.characterId || "climber",
+          cx, previewY, Math.min(this.W, this.H) * 0.07);
+        if (this.titleOverlay) this.titleOverlay.add(preview);
+        this._titlePreview = preview;
+        this._titlePreviewId = this.characterId || "climber";
+      }
+    }
+
+    startFromTitle() {
+      if (this.state !== "title") return;
+      if (this._titleTween) { this._titleTween.stop(); this._titleTween = null; }
+      if (this.titleOverlay) { this.titleOverlay.destroy(); this.titleOverlay = null; }
+      this._titlePreview = null;
+      this.state = "playing";
+      // Fresh run (clears any state from the pre-title resetRun())
+      this.restartRun();
+      this.state = "playing";
+      this.runStartTime = this.time.now;
+      this.hintUntil = this.time.now + 5500;
+      if (this.hud) this.hud.container.setVisible(true);
+    }
+
+    // ---------------------------------------------------------------
+    // Pause menu
+    // ---------------------------------------------------------------
+    togglePause() {
+      if (this.state === "playing") this.showPauseMenu();
+      else if (this.state === "paused") this.hidePauseMenu();
+    }
+    showPauseMenu() {
+      this.state = "paused";
+      if (this.pauseOverlay) this.pauseOverlay.destroy();
+      const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2300);
+      const bg = this.add.graphics();
+      bg.fillStyle(0x000000, 0.70);
+      bg.fillRect(0, 0, this.W, this.H);
+      g.add(bg);
+
+      const cx = this.W / 2;
+      const S = Math.min(this.W, this.H);
+      const titleSize = Math.round(S * 0.10);
+      const btnLbl = Math.round(S * 0.035);
+      const btnH = Math.round(S * 0.07);
+      const btnW = Math.min(this.W * 0.65, S * 0.55);
+      const gap = Math.round(S * 0.022);
+      let y = this.H / 2 - (titleSize * 1.2 + (btnH + gap) * 4) / 2;
+
+      const title = this.add.text(cx, y, "PAUSED", {
+        fontFamily: "Courier New, monospace",
+        fontSize: titleSize + "px", fontStyle: "bold",
+        color: "#9cd9ff", stroke: "#000", strokeThickness: 6,
+      }).setOrigin(0.5, 0);
+      g.add(title);
+      y += titleSize * 1.2 + gap;
+
+      const makeBtn = (label, onPress, fill, stroke) => {
+        const gb = this.add.graphics();
+        gb.fillStyle(fill, 1);
+        gb.fillRoundedRect(cx - btnW / 2, y, btnW, btnH, 10);
+        gb.lineStyle(2, stroke, 1);
+        gb.strokeRoundedRect(cx - btnW / 2, y, btnW, btnH, 10);
+        g.add(gb);
+        const lbl = this.add.text(cx, y + btnH / 2, label, {
+          fontFamily: "Courier New, monospace",
+          fontSize: btnLbl + "px", fontStyle: "bold",
+          color: "#fff",
+        }).setOrigin(0.5);
+        g.add(lbl);
+        const hit = this.add.zone(cx, y + btnH / 2, btnW, btnH).setOrigin(0.5)
+          .setInteractive({ useHandCursor: true });
+        g.add(hit);
+        hit.on("pointerdown", onPress);
+        y += btnH + gap;
+      };
+
+      makeBtn("RESUME",    () => this.hidePauseMenu(),                  0x2e84d6, 0x9cd9ff);
+      makeBtn("CHARACTER", () => this.openCharacterSelect(),            0x1a1a24, 0xffdf3c);
+      makeBtn(this.audio.muted ? "UNMUTE" : "MUTE",
+        () => { this.audio.toggleMute(); this.showPauseMenu(); },       0x223344, 0x9cd9ff);
+      makeBtn("RESTART",   () => { this.hidePauseMenu(); this.restartRun(); }, 0x664434, 0xffdf3c);
+      makeBtn("HOME",      () => { this.hidePauseMenu(true); this.state = "title"; this.showTitleScreen(); }, 0x444b66, 0xff9a9a);
+
+      this.pauseOverlay = g;
+    }
+    hidePauseMenu(keepState) {
+      if (this.pauseOverlay) { this.pauseOverlay.destroy(); this.pauseOverlay = null; }
+      if (!keepState) this.state = "playing";
+    }
+
+    // ---------------------------------------------------------------
+    // First-run hint
+    // ---------------------------------------------------------------
+    updateHint() {
+      const now = this.time.now;
+      if (now > this.hintUntil) {
+        if (this.hintLabel) { this.hintLabel.destroy(); this.hintLabel = null; }
+        return;
+      }
+      if (!this.hintLabel) {
+        const S = Math.min(this.W, this.H);
+        const text = "RUN FAST TO JUMP HIGHER.   HIT WALLS + REVERSE TO BOUNCE.";
+        this.hintLabel = this.add.text(this.W / 2, this.H - S * 0.05, text, {
+          fontFamily: "Courier New, monospace",
+          fontSize: Math.round(S * 0.026) + "px",
+          fontStyle: "bold",
+          color: "#9cd9ff", stroke: "#000", strokeThickness: 3,
+          align: "center",
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1200);
+      }
+      // Fade last 0.8s
+      const remaining = this.hintUntil - now;
+      if (remaining < 800) {
+        this.hintLabel.setAlpha(remaining / 800);
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Camera shake (called on high-impact landings)
+    // ---------------------------------------------------------------
+    shakeCamera(intensity, ms) {
+      this.cameras.main.shake(ms || 140, intensity || 0.004);
+    }
+
     update(_time, delta) {
+      // Title: animate backdrop only.
+      if (this.state === "title") {
+        this.drawBackground();
+        this.animateTitleScreen();
+        return;
+      }
+      // Paused: freeze world, keep overlay responsive.
+      if (this.state === "paused") {
+        this.drawBackground();
+        this.drawWalls();
+        this.drawFloors();
+        this.drawGhost();
+        this.drawParticles();
+        this.drawPlayer();
+        this.drawHUD();
+        return;
+      }
       if (this.gameOver) {
         this.drawWalls();
         this.drawFloors();
@@ -2780,6 +3059,7 @@
       this.drawPlayer();
       this.drawHurryUp();
       this.drawHUD();
+      this.updateHint();
       this.checkGameOver();
     }
   }
