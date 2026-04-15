@@ -151,6 +151,16 @@
     catch (_) {}
   }
 
+  // Linearly blend two 0xRRGGBB colors at t in [0..1]
+  function lerpColor(a, b, t) {
+    const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+    const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+    const r = Math.round(ar + (br - ar) * t) & 0xff;
+    const g = Math.round(ag + (bg - ag) * t) & 0xff;
+    const bl= Math.round(ab + (bb - ab) * t) & 0xff;
+    return (r << 16) | (g << 8) | bl;
+  }
+
   // ------------------------------------------------------------------
   // GameScene - will grow in subsequent phases
   // ------------------------------------------------------------------
@@ -209,12 +219,33 @@
       if (this.hud) this.buildHUD();
     }
 
-    // Simple placeholder gradient backdrop; themed version comes in Phase 6.
+    // Themed vertical-gradient backdrop + parallax stars/snow.
     drawBackground() {
       const g = this.bgGfx;
       g.clear();
-      g.fillStyle(0x05080f, 1);
-      g.fillRect(0, 0, this.W, this.H);
+      const theme = this.currentTheme ? this.currentTheme() : this.floorTheme(0);
+
+      // Draw a chunky-pixel vertical gradient between bg1 and bg2.
+      const steps = 10;
+      for (let i = 0; i < steps; i++) {
+        const t = i / (steps - 1);
+        const c = lerpColor(theme.bg1, theme.bg2, t);
+        g.fillStyle(c, 1);
+        g.fillRect(0, (this.H * i) / steps, this.W, this.H / steps + 1);
+      }
+
+      // Subtle parallax "stars" / ice motes - deterministic per band
+      const band = this.player ? Math.floor(this.player.highestFloor / 100) : 0;
+      const seed = 1337 + band * 7;
+      const count = 40;
+      g.fillStyle(theme.accent, 0.35);
+      for (let i = 0; i < count; i++) {
+        const r = ((seed * (i + 1)) * 9301 + 49297) % 233280;
+        const x = (r % this.W);
+        const y = ((r >> 3) % this.H);
+        const sz = 1 + (i % 3);
+        g.fillRect(x, y, sz, sz);
+      }
     }
 
     // ---------------------------------------------------------------
@@ -315,6 +346,12 @@
       };
       this.rewardPopups = [];    // active reward text objects
 
+      // Particles
+      this.particles = [];       // [{x,y,vx,vy,life,maxLife,size,color}]
+
+      // Milestones already announced (so each only fires once)
+      this.milestonesFired = {};
+
       // Build / refresh HUD
       this.buildHUD();
     }
@@ -359,13 +396,63 @@
       this.maxSpawnedFloor = n;
     }
 
-    // Rough theme resolver - full palette lands in Phase 6.
+    // Full theme palette per 100-floor band.
+    // top/side = floor surfaces, wall = side walls, bg1/bg2 = sky gradient,
+    // accent = particles, glintA/B = wall hatching tones.
     floorTheme(n) {
-      if (n < 100) return { top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c };
-      if (n < 200) return { top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x333333 };
-      if (n < 300) return { top: 0xff9a6a, side: 0xcc3a0a, wall: 0x701a00 };
-      if (n < 400) return { top: 0x9aeaa0, side: 0x2a7a38, wall: 0x155020 };
-      return { top: 0xd0b8ff, side: 0x5e3fa0, wall: 0x2a1a55 };
+      if (n < 100) return {
+        top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c,
+        bg1: 0x0b1d3a, bg2: 0x1a3d6c,
+        accent: 0xe8faff, glint: 0xd3f0ff,
+        name: "ICE",
+      };
+      if (n < 200) return {
+        top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x2e2e34,
+        bg1: 0x14141a, bg2: 0x2a2a32,
+        accent: 0xe0e0e0, glint: 0xa8a8a8,
+        name: "STONE",
+      };
+      if (n < 300) return {
+        top: 0xffb27a, side: 0xcc3a0a, wall: 0x5a1400,
+        bg1: 0x200500, bg2: 0x501200,
+        accent: 0xffd27a, glint: 0xff7a30,
+        name: "LAVA",
+      };
+      if (n < 400) return {
+        top: 0xb8f0a8, side: 0x2a7a38, wall: 0x14401e,
+        bg1: 0x061505, bg2: 0x0f2e18,
+        accent: 0xf0ffe0, glint: 0x6acb7a,
+        name: "FOREST",
+      };
+      return {
+        top: 0xd8c0ff, side: 0x5e3fa0, wall: 0x261048,
+        bg1: 0x04001a, bg2: 0x170a44,
+        accent: 0xfff0ff, glint: 0xa47fff,
+        name: "SPACE",
+      };
+    }
+
+    // Linearly blend two themes at the band boundary for smooth transitions.
+    // Blend ramps over the last/first 10 floors of each band.
+    currentTheme() {
+      const n = this.player ? this.player.highestFloor : 0;
+      const band = Math.floor(n / 100);
+      const intoBand = n - band * 100;
+      if (intoBand < 90) return this.floorTheme(n);
+      // Blend toward next band
+      const t = (intoBand - 90) / 10;
+      const a = this.floorTheme(n);
+      const b = this.floorTheme(band * 100 + 100);
+      return {
+        top:    lerpColor(a.top, b.top, t),
+        side:   lerpColor(a.side, b.side, t),
+        wall:   lerpColor(a.wall, b.wall, t),
+        bg1:    lerpColor(a.bg1, b.bg1, t),
+        bg2:    lerpColor(a.bg2, b.bg2, t),
+        accent: lerpColor(a.accent, b.accent, t),
+        glint:  lerpColor(a.glint, b.glint, t),
+        name: a.name,
+      };
     }
 
     // Pixel-art arctic climber drawn procedurally. Redraws each frame.
@@ -629,6 +716,9 @@
       const prevFloor = p.currentFloor;
       p.currentFloor = toFloor;
 
+      // Landing particle burst
+      this.spawnLandParticles(p.x, floor.y, this.floorTheme(floor.n));
+
       const floorsClearedSinceJump = toFloor - fromFloor;
 
       // --- New-floor scoring ---
@@ -637,7 +727,17 @@
         // Multiplier is additive: 1 + (count * 0.5). count 0 -> 1x.
         const mult = 1 + this.combo.count * 0.5;
         this.score += Math.round(CFG.POINTS_PER_FLOOR * gained * mult);
+        const prevBest = p.highestFloor;
         p.highestFloor = toFloor;
+
+        // Milestone flashes
+        for (let m = 0; m < CFG.MILESTONES.length; m++) {
+          const ms = CFG.MILESTONES[m];
+          if (prevBest < ms && toFloor >= ms && !this.milestonesFired[ms]) {
+            this.milestonesFired[ms] = true;
+            this.triggerMilestone(ms);
+          }
+        }
 
         // Keep the tower built well above the player
         const wantUpTo = toFloor + 80;
@@ -725,6 +825,106 @@
 
     onWallBounce() {
       // Hook for Phase 7 audio / particle feedback.
+      const p = this.player;
+      const theme = this.currentTheme();
+      const xWall = p.wallHitSide === -1 ? CFG.WALL_THICKNESS : this.W - CFG.WALL_THICKNESS;
+      const dir = -p.wallHitSide;
+      for (let i = 0; i < 10; i++) {
+        this.particles.push({
+          x: xWall, y: p.y - p.h * 0.6 + (Math.random() - 0.5) * 14,
+          vx: dir * (40 + Math.random() * 80),
+          vy: (Math.random() - 0.5) * 80,
+          life: 0.4, maxLife: 0.4,
+          size: 2 + Math.random() * 2,
+          color: theme.accent,
+        });
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Particles
+    // ---------------------------------------------------------------
+    spawnLandParticles(x, y, theme) {
+      const n = 14;
+      for (let i = 0; i < n; i++) {
+        const angle = Math.PI + (Math.random() - 0.5) * Math.PI * 0.9; // upward fan
+        const speed = 40 + Math.random() * 90;
+        this.particles.push({
+          x: x + (Math.random() - 0.5) * 12,
+          y: y - 2,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.5 + Math.random() * 0.3,
+          maxLife: 0.8,
+          size: 1 + Math.floor(Math.random() * 3),
+          color: i % 3 === 0 ? theme.accent : theme.top,
+        });
+      }
+    }
+
+    updateParticles(dt) {
+      const arr = this.particles;
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const pt = arr[i];
+        pt.life -= dt;
+        if (pt.life <= 0) { arr.splice(i, 1); continue; }
+        pt.vy += 420 * dt; // gravity on particles
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+      }
+    }
+
+    drawParticles() {
+      const g = this.particlesGfx;
+      g.clear();
+      for (let i = 0; i < this.particles.length; i++) {
+        const pt = this.particles[i];
+        const a = Math.max(0, Math.min(1, pt.life / pt.maxLife));
+        g.fillStyle(pt.color, a);
+        g.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Milestone flash at floors 100 / 250 / 500 / 1000
+    // ---------------------------------------------------------------
+    triggerMilestone(n) {
+      const msg = n >= 1000 ? `FLOOR ${n}!\nLEGEND.`
+                : n >= 500  ? `FLOOR ${n}!\nINCREDIBLE!`
+                : n >= 250  ? `FLOOR ${n}!\nKEEP GOING!`
+                :             `FLOOR ${n}!\nNICE CLIMB!`;
+      const cx = this.W / 2;
+      const cy = this.H * 0.42;
+      const size = Math.round(Math.min(this.W, this.H) * 0.1);
+      const label = this.add.text(cx, cy, msg, {
+        fontFamily: "Courier New, monospace",
+        fontSize: size + "px",
+        fontStyle: "bold",
+        color: "#fff",
+        stroke: "#000",
+        strokeThickness: 8,
+        align: "center",
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1750).setAlpha(0);
+      this.tweens.add({
+        targets: label, alpha: 1, scale: { from: 0.5, to: 1.2 },
+        duration: 260, ease: "Back.Out",
+      });
+      this.tweens.add({
+        targets: label, alpha: 0, scale: 1.3, y: cy - 40,
+        delay: 1400, duration: 700, ease: "Sine.In",
+        onComplete: () => label.destroy(),
+      });
+
+      // Full-screen color flash
+      const theme = this.currentTheme();
+      const flash = this.add.graphics().setScrollFactor(0).setDepth(1600);
+      flash.fillStyle(theme.accent, 0.35);
+      flash.fillRect(0, 0, this.W, this.H);
+      this.tweens.add({
+        targets: flash, alpha: 0,
+        duration: 450, ease: "Sine.Out",
+        onComplete: () => flash.destroy(),
+      });
     }
 
     // ---------------------------------------------------------------
@@ -1040,8 +1240,8 @@
         if (f.y < viewTop || f.y > viewBottom) continue;
         const theme = this.floorTheme(f.n);
         // Shadow strip under the floor
-        g.fillStyle(0x000000, 0.25);
-        g.fillRect(f.x + 2, f.y + f.h, f.w, 3);
+        g.fillStyle(0x000000, 0.35);
+        g.fillRect(f.x + 2, f.y + f.h, f.w, 4);
         // Side color (thickness)
         g.fillStyle(theme.side, 1);
         g.fillRect(f.x, f.y, f.w, f.h);
@@ -1049,9 +1249,15 @@
         g.fillStyle(theme.top, 1);
         g.fillRect(f.x, f.y, f.w, 3);
         // Glint ticks
-        g.fillStyle(0xffffff, 0.55);
+        g.fillStyle(theme.accent, 0.75);
         for (let t = 0; t < f.w; t += 24) {
           g.fillRect(f.x + t + 6, f.y + 1, 4, 1);
+        }
+        // Floor number etched on every 5th floor
+        if (f.n > 0 && f.n % 5 === 0 && f.w > 70) {
+          // Small tick on left end
+          g.fillStyle(theme.wall, 0.55);
+          g.fillRect(f.x + 4, f.y + 5, 3, 3);
         }
       }
     }
@@ -1059,7 +1265,7 @@
     drawWalls() {
       const g = this.wallsGfx;
       g.clear();
-      const theme = this.floorTheme(this.player.highestFloor);
+      const theme = this.currentTheme();
       const top = this.cameraY - 20;
       const h = this.H + 40;
 
@@ -1070,17 +1276,21 @@
       g.fillRect(this.W - CFG.WALL_THICKNESS, top, CFG.WALL_THICKNESS, h);
 
       // Inner edge highlight
-      g.fillStyle(0xffffff, 0.08);
+      g.fillStyle(theme.accent, 0.10);
       g.fillRect(CFG.WALL_THICKNESS - 2, top, 2, h);
       g.fillRect(this.W - CFG.WALL_THICKNESS, top, 2, h);
 
       // Brick hatching
-      g.fillStyle(0x000000, 0.22);
+      g.fillStyle(0x000000, 0.28);
       const startRow = Math.floor(top / 16) * 16;
       for (let y = startRow; y < top + h; y += 16) {
         g.fillRect(0, y, CFG.WALL_THICKNESS, 1);
         g.fillRect(this.W - CFG.WALL_THICKNESS, y, CFG.WALL_THICKNESS, 1);
       }
+      // Vertical mortar line
+      g.fillStyle(0x000000, 0.18);
+      g.fillRect(CFG.WALL_THICKNESS / 2, top, 1, h);
+      g.fillRect(this.W - CFG.WALL_THICKNESS / 2, top, 1, h);
     }
 
     update(_time, delta) {
@@ -1094,9 +1304,12 @@
       this.readInput();
       this.updatePhysics(dt);
       this.updateCombo(dt);
+      this.updateParticles(dt);
       this.updateCamera(dt);
+      this.drawBackground();     // theme can drift as player climbs
       this.drawWalls();
       this.drawFloors();
+      this.drawParticles();
       this.drawPlayer();
       this.drawHurryUp();
       this.drawHUD();
