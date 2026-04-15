@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1d3a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Frostspire</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #05080f;
+      overflow: hidden;
+      font-family: "Courier New", monospace;
+      color: #fff;
+      overscroll-behavior: none;
+    }
+    #game {
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
+    }
+    canvas { display: block; }
+    #tilt-enable {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      padding: 12px 22px;
+      background: rgba(20, 90, 180, 0.92);
+      color: #fff;
+      border: 2px solid #9cd9ff;
+      border-radius: 10px;
+      font: 700 14px/1 "Courier New", monospace;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      display: none;
+      z-index: 20;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    }
+    #boot-msg {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9cd9ff;
+      font: 700 18px/1.5 "Courier New", monospace;
+      letter-spacing: 2px;
+      pointer-events: none;
+      z-index: 5;
+      opacity: 0.6;
+    }
+    * {
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <button id="tilt-enable" type="button">Enable Tilt Controls</button>
+  <div id="boot-msg">LOADING FROSTSPIRE</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <script>
+  "use strict";
+
+  /* =========================================================================
+   * FROSTSPIRE - an Icy Tower-inspired vertical climber
+   * Single-file browser game built with Phaser 3.
+   * ========================================================================= */
+
+  // ------------------------------------------------------------------
+  // CFG - all gameplay tuning in one place
+  // ------------------------------------------------------------------
+  const CFG = {
+    // Horizontal motion
+    MAX_H_SPEED: 400,           // px/s at full sprint
+    GROUND_ACCEL: 1000,         // 400 / 0.4s ramp to max
+    GROUND_FRICTION: 1333,      // 400 / 0.3s slide to stop
+    AIR_ACCEL: 600,             // 60% of ground accel
+
+    // Vertical / jump
+    GRAVITY: 800,               // px/s^2 (matches spec 0.8 scaled)
+    BASE_JUMP: 300,             // jump Vy at standstill -> ~1 floor
+    BONUS_JUMP: 350,            // added at full sprint -> ~5 floors
+
+    // Floors
+    FLOOR_HEIGHT: 50,           // vertical spacing between floors
+    FLOOR_THICKNESS: 10,        // visual thickness
+    FLOOR_MIN_WIDTH_PX: 60,
+    FLOOR_WIDTH_JITTER: 0.15,   // +/- 15%
+
+    // Walls
+    WALL_THICKNESS: 36,
+    WALL_BOUNCE_WINDOW_MS: 100, // time to press opposite dir for full preserve
+
+    // Character
+    CHAR_W: 22,
+    CHAR_H: 32,
+
+    // Combo
+    COMBO_MIN_FLOORS: 2,
+    COMBO_TIMEOUT_MS: 3000,
+
+    // Scroll escalation
+    SCROLL_START_FLOOR: 5,
+    SCROLL_INITIAL_SPEED: 30,
+    SCROLL_INCREMENT: 20,
+    SCROLL_INCREMENT_MS: 30000,
+
+    // Scoring
+    POINTS_PER_FLOOR: 10,
+
+    // Ghost recorder
+    GHOST_SAMPLE_MS: 100,
+
+    // Milestones
+    MILESTONES: [100, 250, 500, 1000],
+  };
+
+  const LS_KEYS = {
+    bestScore:   "frostspire.bestScore",
+    bestFloor:   "frostspire.bestFloor",
+    longestCombo:"frostspire.longestCombo",
+    ghost:       "frostspire.ghost",
+  };
+
+  function lsGetInt(key, fallback) {
+    try {
+      const v = parseInt(localStorage.getItem(key), 10);
+      return Number.isFinite(v) ? v : fallback;
+    } catch (_) { return fallback; }
+  }
+  function lsGetJSON(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_) { return fallback; }
+  }
+  function lsSet(key, val) {
+    try { localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val)); }
+    catch (_) {}
+  }
+
+  // ------------------------------------------------------------------
+  // GameScene - will grow in subsequent phases
+  // ------------------------------------------------------------------
+  class GameScene extends Phaser.Scene {
+    constructor() { super("game"); }
+
+    create() {
+      this.W = this.scale.gameSize.width;
+      this.H = this.scale.gameSize.height;
+
+      // Persistent bests (loaded once at boot, updated during play)
+      this.best = {
+        score:        lsGetInt(LS_KEYS.bestScore, 0),
+        floor:        lsGetInt(LS_KEYS.bestFloor, 0),
+        longestCombo: lsGetInt(LS_KEYS.longestCombo, 0),
+        ghost:        lsGetJSON(LS_KEYS.ghost, null),
+      };
+
+      // Layer setup (deeper = foreground). Game-world layers scroll with camera.
+      this.bgGfx       = this.add.graphics().setDepth(-10);
+      this.wallsGfx    = this.add.graphics().setDepth(-5);
+      this.floorsGfx   = this.add.graphics().setDepth(0);
+      this.particlesGfx= this.add.graphics().setDepth(5);
+      this.ghostGfx    = this.add.graphics().setDepth(8).setAlpha(0.35);
+      this.playerGfx   = this.add.graphics().setDepth(10);
+
+      // UI layer (stays put on screen)
+      this.uiLayer = this.add.container(0, 0).setScrollFactor(0).setDepth(1000);
+      this.fxLayer = this.add.container(0, 0).setScrollFactor(0).setDepth(1500);
+
+      this.cameras.main.setBackgroundColor("#05080f");
+
+      this.drawBackground();
+
+      this.scale.on("resize", this.onResize, this);
+
+      // Hide boot overlay now that Phaser is alive.
+      const boot = document.getElementById("boot-msg");
+      if (boot) boot.style.display = "none";
+    }
+
+    onResize(gameSize) {
+      this.W = gameSize.width;
+      this.H = gameSize.height;
+      this.drawBackground();
+    }
+
+    // Simple placeholder gradient backdrop; themed version comes in Phase 6.
+    drawBackground() {
+      const g = this.bgGfx;
+      g.clear();
+      g.fillStyle(0x05080f, 1);
+      g.fillRect(0, 0, this.W, this.H);
+    }
+
+    update(time, delta) {
+      // Physics, input, and game logic are added in later phases.
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Boot
+  // ------------------------------------------------------------------
+  const config = {
+    type: Phaser.AUTO,
+    parent: "game",
+    backgroundColor: "#05080f",
+    scale: {
+      mode: Phaser.Scale.RESIZE,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    },
+    render: {
+      pixelArt: true,
+      antialias: false,
+      roundPixels: true,
+    },
+    scene: [GameScene],
+  };
+
+  // eslint-disable-next-line no-unused-vars
+  const game = new Phaser.Game(config);
+  </script>
+</body>
+</html>
