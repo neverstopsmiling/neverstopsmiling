@@ -257,6 +257,21 @@
     catch (_) {}
   }
 
+  // Combo tier color (0xRRGGBB). Used by HUD glow + multiplier text.
+  function tierColorFor(n) {
+    if (n >= 100) return 0xff5cf0;       // GODLIKE pink
+    if (n >= 50)  return 0xff3cdc;       // EXTREME magenta
+    if (n >= 30)  return 0xa93cff;       // FANTASTIC purple
+    if (n >= 20)  return 0xff2e2e;       // EXCELLENT red
+    if (n >= 10)  return 0xff8a2a;       // SWEET orange
+    if (n >= 5)   return 0xffdf3c;       // GOOD yellow
+    return 0xffcc00;                     // opening color
+  }
+  function tierColorCssFor(n) {
+    const v = tierColorFor(n).toString(16).padStart(6, "0");
+    return "#" + v;
+  }
+
   // Linearly blend two 0xRRGGBB colors at t in [0..1]
   function lerpColor(a, b, t) {
     const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
@@ -1691,6 +1706,7 @@
           this.combo.longest = this.combo.count;
         }
         this.maybeShowComboReward(this.combo.count);
+        this.pulseCombo();
       } else {
         if (this.combo.count > 0) this.breakCombo();
       }
@@ -1755,31 +1771,55 @@
     spawnRewardPopup(text) {
       const cx = this.W / 2;
       const cy = this.H * 0.38;
-      const size = Math.round(Math.min(this.W, this.H) * 0.11);
+      const S = Math.min(this.W, this.H);
+      const size = Math.round(S * 0.12);
+      const color = tierColorFor(this.combo.count);
+      const colorCss = tierColorCssFor(this.combo.count);
+
+      // Shockwave ring behind the text
+      const ring = this.add.graphics().setScrollFactor(0).setDepth(1690);
+      const drawRing = (r, a) => {
+        ring.clear();
+        ring.lineStyle(5, color, a);
+        ring.strokeCircle(cx, cy, r);
+        ring.lineStyle(2, 0xffffff, a * 0.7);
+        ring.strokeCircle(cx, cy, r * 0.95);
+      };
+      drawRing(4, 0.9);
+      this.tweens.addCounter({
+        from: 4, to: S * 0.4, duration: 550, ease: "Sine.Out",
+        onUpdate: (tw) => {
+          const r = tw.getValue();
+          const a = 1 - r / (S * 0.4);
+          drawRing(r, Math.max(0, a));
+        },
+        onComplete: () => ring.destroy(),
+      });
+
       const label = this.add.text(cx, cy, text, {
         fontFamily: "Courier New, monospace",
         fontSize: size + "px",
         fontStyle: "bold",
-        color: "#ffdf3c",
-        stroke: "#802000",
-        strokeThickness: 8,
+        color: colorCss,
+        stroke: "#000",
+        strokeThickness: 9,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(1700).setAlpha(0);
 
       this.tweens.add({
         targets: label,
         alpha: { from: 0, to: 1 },
-        scale: { from: 0.6, to: 1.15 },
+        scale: { from: 0.5, to: 1.2 },
         y: cy - 20,
         ease: "Back.Out",
-        duration: 220,
+        duration: 260,
       });
       this.tweens.add({
         targets: label,
         alpha: 0,
-        scale: 0.95,
-        y: cy - 60,
-        delay: 900,
-        duration: 600,
+        scale: 1.0,
+        y: cy - 80,
+        delay: 1000,
+        duration: 700,
         ease: "Sine.In",
         onComplete: () => label.destroy(),
       });
@@ -2112,86 +2152,190 @@
       if (this.hud) this.hud.container.destroy();
       const c = this.add.container(0, 0).setScrollFactor(0).setDepth(1100);
 
-      const pad = 14;
-      const small = Math.max(14, Math.round(Math.min(this.W, this.H) * 0.032));
-      const big   = Math.max(18, Math.round(Math.min(this.W, this.H) * 0.045));
+      const S = Math.min(this.W, this.H);
+      const pad = Math.round(S * 0.025);
+      const small = Math.max(13, Math.round(S * 0.030));
+      const big   = Math.max(20, Math.round(S * 0.050));
 
-      const floorTxt = this.add.text(pad, pad, "FLOOR 0", {
+      // ---- Floor counter (top-left) ----
+      const floorPlate = this.add.graphics();
+      c.add(floorPlate);
+      const floorTxt = this.add.text(pad + 6, pad, "FLOOR 0", {
         fontFamily: "Courier New, monospace",
         fontSize: big + "px", fontStyle: "bold",
-        color: "#9cd9ff", stroke: "#000", strokeThickness: 4,
+        color: "#9cd9ff", stroke: "#00182e", strokeThickness: 4,
       });
       c.add(floorTxt);
 
+      // ---- Score ticker (top-center) ----
+      const scorePlate = this.add.graphics();
+      c.add(scorePlate);
       const scoreTxt = this.add.text(this.W / 2, pad, "0", {
         fontFamily: "Courier New, monospace",
-        fontSize: big + "px", fontStyle: "bold",
-        color: "#ffffff", stroke: "#000", strokeThickness: 4,
+        fontSize: Math.round(big * 1.1) + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 5,
       }).setOrigin(0.5, 0);
       c.add(scoreTxt);
 
-      const bestTxt = this.add.text(this.W - pad, pad, "BEST " + this.best.score, {
+      // ---- Best score (top-right, with crown glyph) ----
+      const bestTxt = this.add.text(this.W - pad, pad + 2, "\u2654 BEST " + this.best.score, {
         fontFamily: "Courier New, monospace",
-        fontSize: small + "px",
+        fontSize: small + "px", fontStyle: "bold",
         color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
       }).setOrigin(1, 0);
       c.add(bestTxt);
 
-      // Combo meter on the left side
-      const meterBG = this.add.graphics();
-      c.add(meterBG);
-      const meterFill = this.add.graphics();
-      c.add(meterFill);
+      // ---- Combo meter (vertical, left edge) ----
+      const meterBG    = this.add.graphics();
+      const meterFill  = this.add.graphics();
+      const meterGlow  = this.add.graphics();
+      c.add(meterBG); c.add(meterFill); c.add(meterGlow);
 
-      const comboTxt = this.add.text(pad + 9, this.H * 0.5, "", {
+      // ---- Giant multiplier badge on the meter ----
+      const multTxt = this.add.text(pad + 26, this.H * 0.5, "", {
         fontFamily: "Courier New, monospace",
-        fontSize: big + "px", fontStyle: "bold",
-        color: "#ffdf3c", stroke: "#000", strokeThickness: 5,
-      }).setOrigin(0.5);
-      c.add(comboTxt);
+        fontSize: Math.round(S * 0.085) + "px",
+        fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 6,
+      }).setOrigin(0, 0.5);
+      c.add(multTxt);
+      multTxt.setVisible(false);
+
+      // Small "COMBO" label above the meter
+      const comboLabel = this.add.text(pad + 8, this.H * 0.22 - small * 1.1, "COMBO", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(small * 0.85) + "px", fontStyle: "bold",
+        color: "#9cd9ff", stroke: "#000", strokeThickness: 3,
+      }).setOrigin(0.5, 1);
+      c.add(comboLabel);
+      comboLabel.setVisible(false);
 
       this.hud = {
         container: c,
-        floorTxt, scoreTxt, bestTxt, comboTxt,
-        meterBG, meterFill,
-        pad, small, big,
+        floorPlate, floorTxt, scorePlate, scoreTxt, bestTxt,
+        meterBG, meterFill, meterGlow, multTxt, comboLabel,
+        pad, small, big, S,
+        // Tickers / pulse state
+        scoreShown: 0,
+        multPrev: 0,
+        meterPulse: 0,      // 0..1, decays, pulses on each qualifying jump
       };
     }
 
+    // Drive a smoothly animated score so it ticks up instead of snapping.
     drawHUD() {
       if (!this.hud) return;
+      const h = this.hud;
       const p = this.player;
-      this.hud.floorTxt.setText("FLOOR " + p.highestFloor);
-      this.hud.scoreTxt.setText(String(this.score));
-      this.hud.bestTxt.setText("BEST " + Math.max(this.best.score, this.score));
+
+      // Floor counter with small chevron
+      h.floorTxt.setText("\u25B2 FLOOR " + p.highestFloor);
+
+      // Plate behind floor text
+      const fb = h.floorTxt.getBounds();
+      h.floorPlate.clear();
+      h.floorPlate.fillStyle(0x000000, 0.38);
+      h.floorPlate.fillRoundedRect(fb.x - 8, fb.y - 3, fb.width + 16, fb.height + 6, 6);
+
+      // Score ticker: ease toward target each frame
+      const target = this.score;
+      if (h.scoreShown !== target) {
+        const diff = target - h.scoreShown;
+        const step = Math.max(1, Math.ceil(Math.abs(diff) * 0.18));
+        if (diff > 0) h.scoreShown = Math.min(target, h.scoreShown + step);
+        else          h.scoreShown = Math.max(target, h.scoreShown - step);
+      }
+      h.scoreTxt.setText(String(h.scoreShown));
+
+      // Score plate
+      const sb = h.scoreTxt.getBounds();
+      h.scorePlate.clear();
+      h.scorePlate.fillStyle(0x000000, 0.42);
+      h.scorePlate.fillRoundedRect(sb.x - 10, sb.y - 3, sb.width + 20, sb.height + 6, 8);
+      // Flash border when behind target
+      if (h.scoreShown < target) {
+        h.scorePlate.lineStyle(2, 0xffdf3c, 0.8);
+        h.scorePlate.strokeRoundedRect(sb.x - 10, sb.y - 3, sb.width + 20, sb.height + 6, 8);
+      }
+
+      // Best score with crown + subtle glow when nearing a beat
+      const bestVal = Math.max(this.best.score, h.scoreShown);
+      h.bestTxt.setText("\u2654 BEST " + bestVal);
 
       // Combo meter
-      const mbg = this.hud.meterBG;
-      const mf  = this.hud.meterFill;
-      mbg.clear(); mf.clear();
+      h.meterBG.clear();
+      h.meterFill.clear();
+      h.meterGlow.clear();
 
-      const mx = this.hud.pad;
-      const myTop = this.H * 0.25;
-      const mw = 10;
-      const mh = this.H * 0.50;
+      const mx = h.pad;
+      const myTop = this.H * 0.22;
+      const mw = 16;
+      const mh = this.H * 0.56;
 
-      // Track
-      mbg.fillStyle(0x000000, 0.5);
-      mbg.fillRect(mx - 2, myTop - 2, mw + 4, mh + 4);
-      mbg.fillStyle(0x1a3a66, 1);
-      mbg.fillRect(mx, myTop, mw, mh);
+      // Track (outer shadow + inner dark)
+      h.meterBG.fillStyle(0x000000, 0.55);
+      h.meterBG.fillRoundedRect(mx - 3, myTop - 3, mw + 6, mh + 6, 4);
+      h.meterBG.fillStyle(0x0a1428, 1);
+      h.meterBG.fillRoundedRect(mx, myTop, mw, mh, 3);
+      // Top tick marks to hint "drain"
+      h.meterBG.fillStyle(0x1e2e48, 1);
+      for (let t = 0.25; t < 1; t += 0.25) {
+        h.meterBG.fillRect(mx + 2, myTop + mh * t, mw - 4, 1);
+      }
 
-      if (this.combo.count > 0 && this.combo.timer > 0) {
+      const active = this.combo.count > 0 && this.combo.timer > 0;
+      if (active) {
         const frac = Phaser.Math.Clamp(this.combo.timer / (CFG.COMBO_TIMEOUT_MS / 1000), 0, 1);
         const fillH = mh * frac;
-        const color = frac > 0.5 ? 0xffdf3c : (frac > 0.2 ? 0xff8a2a : 0xff3030);
-        mf.fillStyle(color, 1);
-        mf.fillRect(mx, myTop + (mh - fillH), mw, fillH);
-        this.hud.comboTxt.setText("x" + this.combo.count);
-        this.hud.comboTxt.setVisible(true);
+        const y0 = myTop + (mh - fillH);
+        // Gradient fill from top (hot) to bottom (base) in chunky bands.
+        const baseColor = tierColorFor(this.combo.count);
+        const hotColor  = lerpColor(baseColor, 0xffffff, 0.35);
+        const steps = 8;
+        for (let i = 0; i < steps; i++) {
+          const t = i / (steps - 1);
+          const c = lerpColor(hotColor, baseColor, t);
+          const segH = fillH / steps + 1;
+          h.meterFill.fillStyle(c, 1);
+          h.meterFill.fillRect(mx, y0 + segH * i, mw, segH);
+        }
+        // Animated shine ribbon
+        const shineY = y0 + (this.time.now * 0.12 % fillH);
+        h.meterFill.fillStyle(0xffffff, 0.35);
+        h.meterFill.fillRect(mx, shineY, mw, 2);
+
+        // Outer glow, pulses on qualifying jumps
+        const glowA = 0.35 + 0.35 * h.meterPulse + 0.10 * Math.abs(Math.sin(this.time.now / 120));
+        h.meterGlow.lineStyle(4, baseColor, Math.min(0.9, glowA));
+        h.meterGlow.strokeRoundedRect(mx - 2, y0 - 2, mw + 4, fillH + 4, 4);
+
+        // Multiplier badge
+        const mult = this.combo.count;
+        h.multTxt.setVisible(true);
+        h.multTxt.setText("x" + mult);
+        h.multTxt.setColor(tierColorCssFor(mult));
+        // Bouncy increment pop
+        if (mult !== h.multPrev) {
+          h.multPrev = mult;
+          this.tweens.add({
+            targets: h.multTxt,
+            scale: { from: 1.6, to: 1 },
+            duration: 260, ease: "Back.Out",
+          });
+        }
+        h.comboLabel.setVisible(true);
       } else {
-        this.hud.comboTxt.setVisible(false);
+        h.multTxt.setVisible(false);
+        h.comboLabel.setVisible(false);
+        h.multPrev = 0;
       }
+
+      // Decay meter pulse
+      if (h.meterPulse > 0) h.meterPulse = Math.max(0, h.meterPulse - 0.04);
+    }
+
+    pulseCombo() {
+      if (this.hud) this.hud.meterPulse = 1;
     }
 
     // ---------------------------------------------------------------
