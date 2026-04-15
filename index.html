@@ -398,20 +398,99 @@
       // Axis buffer gets populated from keyboard / tilt / touch.
       this.axisX = 0;        // -1, 0, +1 (or analog in [-1..1] from tilt)
       this.jumpPressed = false;
+      this.jumpQueued  = false;
+
+      // ---- Tilt (DeviceOrientation) ----
+      this.tilt = { enabled: false, gamma: 0 };
+      this.touchLeft = false;
+      this.touchRight = false;
+
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const needsPermission =
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function";
+
+      // Enable tilt handler directly on non-iOS; iOS needs a button tap.
+      const installHandler = () => {
+        window.addEventListener("deviceorientation", (ev) => {
+          // gamma: left/right tilt in degrees (-90..90). Positive = right.
+          if (ev.gamma == null) return;
+          this.tilt.enabled = true;
+          this.tilt.gamma = ev.gamma;
+        }, true);
+      };
+
+      if (needsPermission) {
+        const btn = document.getElementById("tilt-enable");
+        if (btn) {
+          btn.style.display = "block";
+          btn.addEventListener("click", async () => {
+            try {
+              const res = await DeviceOrientationEvent.requestPermission();
+              if (res === "granted") {
+                installHandler();
+                btn.style.display = "none";
+              }
+            } catch (_) { /* ignore */ }
+          }, { once: true });
+        }
+      } else if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+        // Non-iOS mobile: just install
+        installHandler();
+      }
+
+      // ---- Touch fallback (always wired; harmless on desktop) ----
+      this.input.on("pointerdown", (pointer) => {
+        // Tap anywhere = jump (edge-triggered)
+        this.jumpQueued = true;
+        // Also remember which side was touched for fallback steering
+        if (pointer.x < this.W / 2) this.touchLeft = true;
+        else this.touchRight = true;
+      });
+      this.input.on("pointermove", (pointer) => {
+        if (pointer.isDown) {
+          if (pointer.x < this.W / 2) { this.touchLeft = true;  this.touchRight = false; }
+          else                        { this.touchRight = true; this.touchLeft = false;  }
+        }
+      });
+      this.input.on("pointerup", () => {
+        this.touchLeft = false;
+        this.touchRight = false;
+      });
     }
 
     readInput() {
       const k = this.keys;
       let ax = 0;
+
+      // Keyboard
       if (k.left.isDown  || k.a.isDown) ax -= 1;
       if (k.right.isDown || k.d.isDown) ax += 1;
+
+      // Tilt (overrides if active and no keyboard input)
+      if (ax === 0 && this.tilt.enabled) {
+        // Dead zone + linear ramp out to +/- 25 degrees
+        const g = this.tilt.gamma;
+        if (Math.abs(g) > 3) {
+          ax = Phaser.Math.Clamp(g / 25, -1, 1);
+        }
+      }
+
+      // Touch fallback if no tilt + no keys
+      if (ax === 0 && !this.tilt.enabled) {
+        if (this.touchLeft)  ax -= 1;
+        if (this.touchRight) ax += 1;
+      }
+
       this.axisX = ax;
 
-      // Edge-triggered jump: true for one frame when any jump key goes down
+      // Edge-triggered jump from keyboard + queued from touch
       this.jumpPressed =
         Phaser.Input.Keyboard.JustDown(k.up) ||
         Phaser.Input.Keyboard.JustDown(k.w)  ||
-        Phaser.Input.Keyboard.JustDown(k.space);
+        Phaser.Input.Keyboard.JustDown(k.space) ||
+        this.jumpQueued;
+      this.jumpQueued = false;
     }
 
     // ---------------------------------------------------------------
@@ -482,6 +561,18 @@
 
       // Milestones already announced (so each only fires once)
       this.milestonesFired = {};
+
+      // Ghost recording / playback
+      // Saved samples: [t_ms, x, y, facing] per tick.
+      this.ghostRec = { samples: [], lastSampleAt: 0 };
+      this.ghostPlay = null;
+      if (this.best.ghost && Array.isArray(this.best.ghost.samples) && this.best.ghost.samples.length > 2) {
+        this.ghostPlay = {
+          samples: this.best.ghost.samples,
+          startTime: this.time.now,
+          index: 0,
+        };
+      }
 
       // Build / refresh HUD
       this.buildHUD();
@@ -1024,6 +1115,125 @@
     }
 
     // ---------------------------------------------------------------
+    // Ghost recording & playback
+    // ---------------------------------------------------------------
+    updateGhost(dt) {
+      const p = this.player;
+      const now = this.time.now - this.runStartTime;
+      // Sample roughly every GHOST_SAMPLE_MS
+      if (now - this.ghostRec.lastSampleAt >= CFG.GHOST_SAMPLE_MS) {
+        this.ghostRec.lastSampleAt = now;
+        // Keep sample payload tiny: rounded ints only.
+        this.ghostRec.samples.push([
+          Math.round(now),
+          Math.round(p.x),
+          Math.round(p.y),
+          p.facing,
+        ]);
+      }
+    }
+
+    drawGhost() {
+      const g = this.ghostGfx;
+      g.clear();
+      if (!this.ghostPlay) return;
+      const samples = this.ghostPlay.samples;
+      const elapsed = this.time.now - this.ghostPlay.startTime;
+
+      // Advance index while next sample time <= elapsed
+      while (
+        this.ghostPlay.index < samples.length - 1 &&
+        samples[this.ghostPlay.index + 1][0] <= elapsed
+      ) this.ghostPlay.index++;
+
+      const i = this.ghostPlay.index;
+      if (i >= samples.length - 1) return;
+
+      const a = samples[i];
+      const b = samples[i + 1];
+      const span = Math.max(1, b[0] - a[0]);
+      const t = Phaser.Math.Clamp((elapsed - a[0]) / span, 0, 1);
+      const gx = a[1] + (b[1] - a[1]) * t;
+      const gy = a[2] + (b[2] - a[2]) * t;
+
+      // Don't render if offscreen
+      if (gy < this.cameraY - 60 || gy > this.cameraY + this.H + 60) return;
+
+      // Simple silhouette matching the player proportions
+      const w = CFG.CHAR_W;
+      const h = CFG.CHAR_H;
+      const bx = gx - w / 2;
+      const by = gy - h;
+      g.fillStyle(0xffffff, 0.35);
+      g.fillRect(bx, by + 4, w, h - 4);
+      g.fillStyle(0x9cd9ff, 0.40);
+      g.fillRect(bx, by + h * 0.30, w, h * 0.46);
+      g.fillStyle(0xffffff, 0.25);
+      g.fillRect(bx + 1, by, w - 2, 6);
+    }
+
+    maybeSaveGhost() {
+      // Save this run's ghost only if it beat the stored best score,
+      // or if no ghost exists yet. Keeps the localStorage payload bounded.
+      const bestHas = this.best.ghost && Array.isArray(this.best.ghost.samples);
+      const beatBest = this.score >= (this.best.ghost ? this.best.ghost.score : 0);
+      if (!bestHas || beatBest) {
+        // Cap total length at ~2000 samples (~200s of play) to keep storage small.
+        const samples = this.ghostRec.samples.slice(0, 2000);
+        const payload = {
+          samples,
+          score: this.score,
+          floor: this.player.highestFloor,
+          combo: this.combo.longest,
+        };
+        try {
+          lsSet(LS_KEYS.ghost, payload);
+          this.best.ghost = payload;
+        } catch (_) {}
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Share
+    // ---------------------------------------------------------------
+    shareScore() {
+      const text = `I reached floor ${this.player.highestFloor} with a ${this.combo.longest}-combo in Frostspire!`;
+      const fallback = () => {
+        // textarea + execCommand("copy") fallback for very old browsers
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          return true;
+        } catch (_) { return false; }
+      };
+      const done = () => {
+        if (this._shareToast) this._shareToast.destroy();
+        const toast = this.add.text(this.W / 2, this.H - 56, "COPIED!", {
+          fontFamily: "Courier New, monospace",
+          fontSize: "18px", fontStyle: "bold",
+          color: "#fff", stroke: "#000", strokeThickness: 3,
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(2100);
+        this._shareToast = toast;
+        this.tweens.add({ targets: toast, alpha: 0, delay: 900, duration: 600, onComplete: () => toast.destroy() });
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, () => { if (fallback()) done(); });
+      } else if (fallback()) {
+        done();
+      }
+      // If the Web Share API is available (mobile), also offer native share.
+      if (navigator.share) {
+        try { navigator.share({ text, title: "Frostspire" }).catch(() => {}); } catch (_) {}
+      }
+    }
+
+    // ---------------------------------------------------------------
     // Milestone flash at floors 100 / 250 / 500 / 1000
     // ---------------------------------------------------------------
     triggerMilestone(n) {
@@ -1281,6 +1491,8 @@
         this.best.longestCombo = this.combo.longest;
         lsSet(LS_KEYS.longestCombo, this.best.longestCombo);
       }
+      // Save ghost if this was a best-score run (or none stored yet).
+      this.maybeSaveGhost();
       this.showGameOverScreen();
     }
 
@@ -1289,68 +1501,101 @@
       const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2000);
 
       const bg = this.add.graphics();
-      bg.fillStyle(0x000000, 0.72);
+      bg.fillStyle(0x000000, 0.75);
       bg.fillRect(0, 0, this.W, this.H);
       g.add(bg);
 
       const cx = this.W / 2;
-      const cy = this.H / 2;
-      const titleSize = Math.round(Math.min(this.W, this.H) * 0.12);
-      const lineSize  = Math.round(Math.min(this.W, this.H) * 0.045);
 
-      const title = this.add.text(cx, cy - titleSize * 1.6, "GAME OVER", {
+      // Size everything as a fraction of the shorter axis so the layout
+      // stays compact on short landscape screens too.
+      const S = Math.min(this.W, this.H);
+      const titleSize = Math.round(S * 0.09);
+      const lineSize  = Math.round(S * 0.035);
+      const btnH      = Math.round(S * 0.07);
+      const btnW      = Math.min(this.W * 0.7, S * 0.55);
+      const gap       = Math.round(S * 0.018);
+
+      // Content block laid out top-to-bottom, centered vertically.
+      const blockH =
+        titleSize * 1.1 + gap +                    // title
+        (lineSize * 1.25) * 3 + gap +              // this run
+        (lineSize * 1.25) * 3 + gap * 1.5 +        // bests
+        btnH + gap + btnH;                          // two buttons
+      let y = (this.H - blockH) / 2;
+
+      const title = this.add.text(cx, y, "GAME OVER", {
         fontFamily: "Courier New, monospace",
         fontSize: titleSize + "px",
         fontStyle: "bold",
         color: "#ff5a5a",
         stroke: "#000",
         strokeThickness: 6,
-      }).setOrigin(0.5);
+      }).setOrigin(0.5, 0);
       g.add(title);
+      y += titleSize * 1.1 + gap;
 
-      const lines = [
-        `FLOOR REACHED:  ${this.player.highestFloor}`,
-        `SCORE:          ${this.score}`,
-        `LONGEST COMBO:  x${this.combo.longest}`,
-        ``,
-        `BEST SCORE:     ${this.best.score}`,
-        `BEST FLOOR:     ${this.best.floor}`,
-        `BEST COMBO:     x${this.best.longestCombo}`,
+      const runLines = [
+        `FLOOR   ${this.player.highestFloor}`,
+        `SCORE   ${this.score}`,
+        `COMBO   x${this.combo.longest}`,
       ];
-      lines.forEach((t, i) => {
-        const line = this.add.text(cx, cy - titleSize * 0.1 + i * (lineSize * 1.3), t, {
+      runLines.forEach((t) => {
+        const line = this.add.text(cx, y, t, {
           fontFamily: "Courier New, monospace",
           fontSize: lineSize + "px",
+          fontStyle: "bold",
           color: "#9cd9ff",
-        }).setOrigin(0.5);
+        }).setOrigin(0.5, 0);
         g.add(line);
+        y += lineSize * 1.25;
       });
 
-      const btnW = Math.min(this.W * 0.6, 260);
-      const btnH = lineSize * 2.2;
-      const btnY = cy + lineSize * 4;
-      const btnBg = this.add.graphics();
-      btnBg.fillStyle(0x2e84d6, 1);
-      btnBg.fillRoundedRect(cx - btnW / 2, btnY - btnH / 2, btnW, btnH, 10);
-      btnBg.lineStyle(2, 0x9cd9ff, 1);
-      btnBg.strokeRoundedRect(cx - btnW / 2, btnY - btnH / 2, btnW, btnH, 10);
-      g.add(btnBg);
+      y += gap;
 
-      const btnLabel = this.add.text(cx, btnY, "RESTART", {
-        fontFamily: "Courier New, monospace",
-        fontSize: lineSize + "px",
-        fontStyle: "bold",
-        color: "#fff",
-      }).setOrigin(0.5);
-      g.add(btnLabel);
+      const bestLines = [
+        `BEST FLOOR  ${this.best.floor}`,
+        `BEST SCORE  ${this.best.score}`,
+        `BEST COMBO  x${this.best.longestCombo}`,
+      ];
+      bestLines.forEach((t) => {
+        const line = this.add.text(cx, y, t, {
+          fontFamily: "Courier New, monospace",
+          fontSize: Math.round(lineSize * 0.88) + "px",
+          color: "#ffdf3c",
+        }).setOrigin(0.5, 0);
+        g.add(line);
+        y += lineSize * 1.25;
+      });
 
-      const hit = this.add.zone(cx, btnY, btnW, btnH)
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true });
-      g.add(hit);
-      hit.on("pointerdown", () => this.restartRun());
-      this.input.keyboard.once("keydown-SPACE",  () => this.gameOver && this.restartRun());
-      this.input.keyboard.once("keydown-ENTER",  () => this.gameOver && this.restartRun());
+      y += gap * 1.5;
+
+      const addBtn = (yy, label, fill, stroke, onPress) => {
+        const gb = this.add.graphics();
+        gb.fillStyle(fill, 1);
+        gb.fillRoundedRect(cx - btnW / 2, yy, btnW, btnH, 10);
+        gb.lineStyle(2, stroke, 1);
+        gb.strokeRoundedRect(cx - btnW / 2, yy, btnW, btnH, 10);
+        g.add(gb);
+        const lbl = this.add.text(cx, yy + btnH / 2, label, {
+          fontFamily: "Courier New, monospace",
+          fontSize: lineSize + "px",
+          fontStyle: "bold",
+          color: "#fff",
+        }).setOrigin(0.5);
+        g.add(lbl);
+        const hit = this.add.zone(cx, yy + btnH / 2, btnW, btnH).setOrigin(0.5)
+          .setInteractive({ useHandCursor: true });
+        g.add(hit);
+        hit.on("pointerdown", onPress);
+      };
+
+      addBtn(y, "RESTART", 0x2e84d6, 0x9cd9ff, () => this.restartRun());
+      y += btnH + gap;
+      addBtn(y, "SHARE",   0x444b66, 0xffdf3c, () => this.shareScore());
+
+      this.input.keyboard.once("keydown-SPACE", () => this.gameOver && this.restartRun());
+      this.input.keyboard.once("keydown-ENTER", () => this.gameOver && this.restartRun());
 
       this.gameOverOverlay = g;
     }
@@ -1446,10 +1691,12 @@
       this.updatePhysics(dt);
       this.updateCombo(dt);
       this.updateParticles(dt);
+      this.updateGhost(dt);
       this.updateCamera(dt);
       this.drawBackground();     // theme can drift as player climbs
       this.drawWalls();
       this.drawFloors();
+      this.drawGhost();
       this.drawParticles();
       this.drawPlayer();
       this.drawHurryUp();
