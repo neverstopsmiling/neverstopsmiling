@@ -7,6 +7,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
   <title>Frostspire</title>
   <style>
     html, body {
@@ -69,6 +72,15 @@
   <button id="tilt-enable" type="button">Enable Tilt Controls</button>
   <div id="boot-msg">LOADING FROSTSPIRE</div>
 
+  <script>
+    // Register the service worker for offline / install-to-home-screen.
+    // Runs before Phaser loads so the worker can cache this pageload too.
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      });
+    }
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
   <script>
   "use strict";
