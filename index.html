@@ -185,6 +185,9 @@
 
       this.drawBackground();
 
+      this.setupInput();
+      this.resetPlayer();
+
       this.scale.on("resize", this.onResize, this);
 
       // Hide boot overlay now that Phaser is alive.
@@ -195,6 +198,7 @@
     onResize(gameSize) {
       this.W = gameSize.width;
       this.H = gameSize.height;
+      this.groundY = this.H - 80;
       this.drawBackground();
     }
 
@@ -206,8 +210,261 @@
       g.fillRect(0, 0, this.W, this.H);
     }
 
-    update(time, delta) {
-      // Physics, input, and game logic are added in later phases.
+    // ---------------------------------------------------------------
+    // Input (keyboard for Phase 2; tilt/touch wired in Phase 8)
+    // ---------------------------------------------------------------
+    setupInput() {
+      this.keys = this.input.keyboard.addKeys({
+        left:  Phaser.Input.Keyboard.KeyCodes.LEFT,
+        right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
+        up:    Phaser.Input.Keyboard.KeyCodes.UP,
+        a:     Phaser.Input.Keyboard.KeyCodes.A,
+        d:     Phaser.Input.Keyboard.KeyCodes.D,
+        w:     Phaser.Input.Keyboard.KeyCodes.W,
+        space: Phaser.Input.Keyboard.KeyCodes.SPACE,
+      });
+      // Prevent arrow / space from scrolling the page.
+      this.input.keyboard.addCapture("LEFT,RIGHT,UP,DOWN,SPACE");
+
+      // Axis buffer gets populated from keyboard / tilt / touch.
+      this.axisX = 0;        // -1, 0, +1 (or analog in [-1..1] from tilt)
+      this.jumpPressed = false;
+    }
+
+    readInput() {
+      const k = this.keys;
+      let ax = 0;
+      if (k.left.isDown  || k.a.isDown) ax -= 1;
+      if (k.right.isDown || k.d.isDown) ax += 1;
+      this.axisX = ax;
+
+      // Edge-triggered jump: true for one frame when any jump key goes down
+      this.jumpPressed =
+        Phaser.Input.Keyboard.JustDown(k.up) ||
+        Phaser.Input.Keyboard.JustDown(k.w)  ||
+        Phaser.Input.Keyboard.JustDown(k.space);
+    }
+
+    // ---------------------------------------------------------------
+    // Player
+    // ---------------------------------------------------------------
+    resetPlayer() {
+      this.groundY = this.H - 80;
+      this.player = {
+        x: this.W / 2,
+        y: this.groundY,      // feet y (world coords)
+        vx: 0,
+        vy: 0,
+        w: CFG.CHAR_W,
+        h: CFG.CHAR_H,
+        onGround: true,
+        facing: 1,            // +1 right, -1 left
+        runPhase: 0,          // leg animation phase
+        crouchT: 0,           // 0..1 brief crouch after landing
+      };
+    }
+
+    // Pixel-art arctic climber drawn procedurally. Redraws each frame.
+    drawPlayer() {
+      const p = this.player;
+      const g = this.playerGfx;
+      g.clear();
+
+      const cx = p.x;
+      const feet = p.y;
+      const facing = p.facing;
+
+      // Base rectangle origin (top-left of body bounding box)
+      const bx = cx - p.w / 2;
+      const by = feet - p.h;
+
+      // Crouch squash on land
+      const crouch = p.crouchT; // 0..1
+      const squash = 1 - crouch * 0.2;
+      const stretch = p.onGround ? 1 : 1.05;
+      const h = p.h * squash * stretch;
+      const yTop = feet - h;
+
+      // Running lean when going fast on ground
+      const speedFrac = Phaser.Math.Clamp(Math.abs(p.vx) / CFG.MAX_H_SPEED, 0, 1);
+      const lean = p.onGround ? facing * speedFrac * 4 : 0;
+
+      // --- Legs ---
+      // Ground + moving: legs alternate via runPhase. Airborne: tuck (both up).
+      const airborne = !p.onGround;
+      const legW = 5;
+      const legH = Math.max(4, h * 0.28);
+      const legY = yTop + h - legH;
+      const legSpread = p.w * 0.25;
+      const legLX = cx - legSpread - legW / 2;
+      const legRX = cx + legSpread - legW / 2;
+
+      g.fillStyle(0x2b2b30, 1); // dark pants
+      if (airborne) {
+        // Tuck - knees up
+        const tuckY = legY - legH * 0.6;
+        g.fillRect(legLX, tuckY, legW, legH);
+        g.fillRect(legRX, tuckY, legW, legH);
+      } else if (Math.abs(p.vx) > 20) {
+        // Running: alternate offsets
+        const s = Math.sin(p.runPhase);
+        const off = s * legH * 0.4;
+        g.fillRect(legLX, legY - off, legW, legH);
+        g.fillRect(legRX, legY + off, legW, legH);
+      } else {
+        g.fillRect(legLX, legY, legW, legH);
+        g.fillRect(legRX, legY, legW, legH);
+      }
+
+      // --- Boots ---
+      g.fillStyle(0x111318, 1);
+      const bootH = 3;
+      if (airborne) {
+        const tuckY = legY - legH * 0.6;
+        g.fillRect(legLX - 1, tuckY + legH - bootH, legW + 2, bootH);
+        g.fillRect(legRX - 1, tuckY + legH - bootH, legW + 2, bootH);
+      } else {
+        g.fillRect(legLX - 1, legY + legH - bootH, legW + 2, bootH);
+        g.fillRect(legRX - 1, legY + legH - bootH, legW + 2, bootH);
+      }
+
+      // --- Parka body ---
+      const bodyH = h * 0.46;
+      const bodyY = yTop + h * 0.30;
+      const bodyX = bx + lean;
+      g.fillStyle(0x2e84d6, 1);
+      g.fillRect(bodyX, bodyY, p.w, bodyH);
+      // belt / fur trim bottom
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bodyX, bodyY + bodyH - 3, p.w, 3);
+
+      // --- Arms ---
+      g.fillStyle(0x2067b0, 1);
+      const armW = 4, armH = bodyH * 0.8;
+      if (airborne) {
+        // Arms up for jump
+        g.fillRect(bodyX - armW + 1, bodyY - armH * 0.4, armW, armH);
+        g.fillRect(bodyX + p.w - 1,  bodyY - armH * 0.4, armW, armH);
+      } else {
+        const armSwing = Math.abs(p.vx) > 20 ? Math.sin(p.runPhase + Math.PI) * 4 : 0;
+        g.fillRect(bodyX - armW + 1, bodyY + armSwing, armW, armH);
+        g.fillRect(bodyX + p.w - 1,  bodyY - armSwing, armW, armH);
+      }
+
+      // --- Head (with goggles + beanie) ---
+      const headW = p.w - 4;
+      const headH = h * 0.30;
+      const headX = bx + 2 + lean;
+      const headY = yTop;
+      // Skin
+      g.fillStyle(0xf2d1a8, 1);
+      g.fillRect(headX, headY + 4, headW, headH - 4);
+      // Beanie
+      g.fillStyle(0xd03030, 1);
+      g.fillRect(headX, headY, headW, 6);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(headX, headY - 2, 4, 3);   // pom
+      g.fillRect(headX + 4, headY - 0.5, headW - 4, 1.5); // band
+      // Goggles (orange lens)
+      g.fillStyle(0x1a1a1a, 1);
+      g.fillRect(headX, headY + 7, headW, 4);
+      g.fillStyle(0xff9a3d, 1);
+      if (facing >= 0) {
+        g.fillRect(headX + headW - 7, headY + 8, 5, 2);
+      } else {
+        g.fillRect(headX + 2, headY + 8, 5, 2);
+      }
+
+      // Scarf flutter
+      g.fillStyle(0xffdc4a, 1);
+      const scarfY = bodyY + 2;
+      const flutter = Math.sin((this.time.now + cx) * 0.02) * 2;
+      if (facing >= 0) {
+        g.fillRect(bodyX - 3, scarfY, 3, 4);
+        g.fillRect(bodyX - 5, scarfY + 2 + flutter, 3, 3);
+      } else {
+        g.fillRect(bodyX + p.w, scarfY, 3, 4);
+        g.fillRect(bodyX + p.w + 2, scarfY + 2 + flutter, 3, 3);
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Physics
+    // ---------------------------------------------------------------
+    updatePhysics(dt) {
+      const p = this.player;
+      const ax = this.axisX;
+
+      // ---- Horizontal ----
+      if (ax !== 0) {
+        const accel = p.onGround ? CFG.GROUND_ACCEL : CFG.AIR_ACCEL;
+        p.vx += ax * accel * dt;
+        p.vx = Phaser.Math.Clamp(p.vx, -CFG.MAX_H_SPEED, CFG.MAX_H_SPEED);
+        p.facing = ax > 0 ? 1 : -1;
+      } else if (p.onGround) {
+        // Ice friction - slide to stop
+        const dec = CFG.GROUND_FRICTION * dt;
+        if (Math.abs(p.vx) <= dec) p.vx = 0;
+        else p.vx -= Math.sign(p.vx) * dec;
+      }
+      // In air with no input, horizontal velocity is preserved (no drag).
+
+      // ---- Jump ----
+      if (this.jumpPressed && p.onGround) {
+        const speedFrac = Math.abs(p.vx) / CFG.MAX_H_SPEED;
+        p.vy = -(CFG.BASE_JUMP + speedFrac * CFG.BONUS_JUMP);
+        p.onGround = false;
+      }
+
+      // ---- Gravity ----
+      p.vy += CFG.GRAVITY * dt;
+
+      // ---- Integrate ----
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+
+      // ---- Temporary ground collision (Phase 3 replaces this) ----
+      if (p.y >= this.groundY) {
+        if (!p.onGround && p.vy > 40) p.crouchT = 1;
+        p.y = this.groundY;
+        p.vy = 0;
+        p.onGround = true;
+      }
+
+      // ---- Temporary side walls so we don't run off screen ----
+      const halfW = p.w / 2;
+      const leftBound  = CFG.WALL_THICKNESS + halfW;
+      const rightBound = this.W - CFG.WALL_THICKNESS - halfW;
+      if (p.x < leftBound)  { p.x = leftBound;  p.vx = Math.abs(p.vx) * -1 * 0; }
+      if (p.x > rightBound) { p.x = rightBound; p.vx = Math.abs(p.vx) *  0; }
+
+      // ---- Animation state ----
+      if (p.onGround && Math.abs(p.vx) > 20) {
+        p.runPhase += (Math.abs(p.vx) / CFG.MAX_H_SPEED) * 18 * dt;
+      } else {
+        p.runPhase = 0;
+      }
+      if (p.crouchT > 0) p.crouchT = Math.max(0, p.crouchT - dt / 0.15);
+    }
+
+    // ---------------------------------------------------------------
+    // Phase-2 placeholder ground renderer (replaced in Phase 3)
+    // ---------------------------------------------------------------
+    drawPlaceholderFloor() {
+      const g = this.floorsGfx;
+      g.clear();
+      g.fillStyle(0x4aa8e0, 1);
+      g.fillRect(0, this.groundY, this.W, 4);
+      g.fillStyle(0x9cd9ff, 1);
+      g.fillRect(0, this.groundY, this.W, 2);
+    }
+
+    update(_time, delta) {
+      const dt = Math.min(delta / 1000, 1 / 30); // clamp to avoid huge steps
+      this.readInput();
+      this.updatePhysics(dt);
+      this.drawPlaceholderFloor();
+      this.drawPlayer();
     }
   }
 
