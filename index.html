@@ -141,6 +141,82 @@
     MILESTONES: [100, 250, 500, 1000],
   };
 
+  // Level progression. floor = the lowest floor number that belongs to this
+  // level. Each level also drives the scroll-speed baseline, floor-width
+  // factor (applied to the 70% base), and visual theme.
+  const LEVELS = [
+    { floor:    1, themeKey: "snow",   scrollSpeed:  30, widthFactor: 1.00, name: "SNOWFIELD"      },
+    { floor:   20, themeKey: "cave",   scrollSpeed:  50, widthFactor: 0.92, name: "FROZEN CAVE"    },
+    { floor:   50, themeKey: "stone",  scrollSpeed:  75, widthFactor: 0.82, name: "STONE KEEP"     },
+    { floor:  100, themeKey: "iron",   scrollSpeed: 105, widthFactor: 0.70, name: "IRON FORTRESS"  },
+    { floor:  200, themeKey: "lava",   scrollSpeed: 140, widthFactor: 0.55, name: "LAVA CAVERN"    },
+    { floor:  400, themeKey: "forest", scrollSpeed: 180, widthFactor: 0.42, name: "ENCHANTED WOOD" },
+    { floor:  800, themeKey: "storm",  scrollSpeed: 220, widthFactor: 0.34, name: "STORM CLOUDS"   },
+    { floor: 1500, themeKey: "space",  scrollSpeed: 260, widthFactor: 0.28, name: "DEEP SPACE"     },
+  ];
+
+  // Per-theme palette + decorative accent hook (method name on GameScene).
+  const THEMES = {
+    snow: {
+      top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c,
+      bg1: 0x0b1d3a, bg2: 0x1a3d6c,
+      accent: 0xe8faff, glint: 0xd3f0ff,
+      name: "SNOWFIELD", accentFn: "accentSnow",
+    },
+    cave: {
+      top: 0x7ad0e0, side: 0x2a7380, wall: 0x0e3a42,
+      bg1: 0x041822, bg2: 0x0e3440,
+      accent: 0xb8f0ff, glint: 0x5aa8c0,
+      name: "FROZEN CAVE", accentFn: "accentCave",
+    },
+    stone: {
+      top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x2e2e34,
+      bg1: 0x14141a, bg2: 0x2a2a32,
+      accent: 0xffd480, glint: 0xa8a8a8,
+      name: "STONE KEEP", accentFn: "accentStone",
+    },
+    iron: {
+      top: 0x8a7868, side: 0x3e3428, wall: 0x1a1008,
+      bg1: 0x0a0805, bg2: 0x1c1510,
+      accent: 0xffa040, glint: 0x706050,
+      name: "IRON FORTRESS", accentFn: "accentIron",
+    },
+    lava: {
+      top: 0xffb27a, side: 0xcc3a0a, wall: 0x5a1400,
+      bg1: 0x200500, bg2: 0x501200,
+      accent: 0xffd27a, glint: 0xff7a30,
+      name: "LAVA CAVERN", accentFn: "accentLava",
+    },
+    forest: {
+      top: 0xb8f0a8, side: 0x2a7a38, wall: 0x14401e,
+      bg1: 0x061505, bg2: 0x0f2e18,
+      accent: 0xfff0a8, glint: 0x6acb7a,
+      name: "ENCHANTED WOOD", accentFn: "accentForest",
+    },
+    storm: {
+      top: 0xc0a8ff, side: 0x6a4aa0, wall: 0x2e1858,
+      bg1: 0x0a0020, bg2: 0x180a44,
+      accent: 0xfff4a0, glint: 0x9070ff,
+      name: "STORM CLOUDS", accentFn: "accentStorm",
+    },
+    space: {
+      top: 0xd8c0ff, side: 0x5e3fa0, wall: 0x261048,
+      bg1: 0x010014, bg2: 0x0c0830,
+      accent: 0xfff0ff, glint: 0xa47fff,
+      name: "DEEP SPACE", accentFn: "accentSpace",
+    },
+  };
+
+  function levelIndexFor(n) {
+    let idx = 0;
+    for (let i = 0; i < LEVELS.length; i++) {
+      if (n >= LEVELS[i].floor) idx = i;
+      else break;
+    }
+    return idx;
+  }
+  function levelFor(n) { return LEVELS[levelIndexFor(n)]; }
+
   const LS_KEYS = {
     bestScore:    "frostspire.bestScore",
     bestFloor:    "frostspire.bestFloor",
@@ -374,8 +450,8 @@
       g.clear();
       const theme = this.currentTheme ? this.currentTheme() : this.floorTheme(0);
 
-      // Draw a chunky-pixel vertical gradient between bg1 and bg2.
-      const steps = 10;
+      // Chunky vertical gradient between bg1 and bg2.
+      const steps = 12;
       for (let i = 0; i < steps; i++) {
         const t = i / (steps - 1);
         const c = lerpColor(theme.bg1, theme.bg2, t);
@@ -383,18 +459,198 @@
         g.fillRect(0, (this.H * i) / steps, this.W, this.H / steps + 1);
       }
 
-      // Subtle parallax "stars" / ice motes - deterministic per band
-      const band = this.player ? Math.floor(this.player.highestFloor / 100) : 0;
-      const seed = 1337 + band * 7;
-      const count = 40;
-      g.fillStyle(theme.accent, 0.35);
-      for (let i = 0; i < count; i++) {
-        const r = ((seed * (i + 1)) * 9301 + 49297) % 233280;
-        const x = (r % this.W);
-        const y = ((r >> 3) % this.H);
+      // Per-theme decorative accent layer (snow, icicles, torches, etc.)
+      const fn = theme.accentFn && this[theme.accentFn];
+      if (fn) fn.call(this, g, theme);
+    }
+
+    // -------------- Per-theme accent renderers --------------
+    // They all draw in screen-space onto this.bgGfx after the gradient.
+    // Most use a deterministic pseudo-random function of (screen x, scroll)
+    // so they drift naturally as the camera moves.
+
+    _rng(seed) {
+      // Tiny deterministic PRNG [0..1)
+      let s = seed >>> 0;
+      return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
+    }
+
+    accentSnow(g, theme) {
+      // Falling snowflakes drifting downward, parallax tied to camera.
+      const t = this.time.now * 0.001;
+      const cam = this.cameraY || 0;
+      const rand = this._rng(42);
+      for (let i = 0; i < 55; i++) {
+        const baseX = rand() * this.W;
+        const baseY = rand() * this.H;
+        const spd   = 10 + rand() * 20;
+        const drift = Math.sin((t + i) * 0.7) * 8;
+        const y = (baseY + t * spd + cam * 0.12) % this.H;
+        const x = (baseX + drift + this.W) % this.W;
         const sz = 1 + (i % 3);
+        g.fillStyle(theme.accent, 0.55);
         g.fillRect(x, y, sz, sz);
       }
+    }
+
+    accentCave(g, theme) {
+      // Hanging icicles along the top + drifting mist.
+      g.fillStyle(theme.top, 0.55);
+      const cols = Math.ceil(this.W / 24);
+      for (let c = 0; c < cols; c++) {
+        const h = 8 + ((c * 1103515245 + 12345) >>> 4) % 18;
+        const x = c * 24 + 6;
+        g.fillRect(x, 0, 4, h);
+        g.fillRect(x + 1, h, 2, 3);
+      }
+      // Mist swirls
+      const t = this.time.now * 0.0005;
+      g.fillStyle(theme.accent, 0.12);
+      for (let i = 0; i < 12; i++) {
+        const x = ((t * 40 + i * 91) % (this.W + 120)) - 60;
+        const y = 40 + ((i * 37) % (this.H - 120));
+        g.fillRect(x, y, 80, 6);
+      }
+    }
+
+    accentStone(g, theme) {
+      // Wall torches: bright flickering flames at fixed column positions.
+      const cam = this.cameraY || 0;
+      const flameColors = [0xffcc40, 0xff7a20, 0xff4010];
+      const positions = [
+        { x: 16, side: -1 },
+        { x: this.W - 16, side: 1 },
+      ];
+      // Torches repeat every 160 world pixels, anchored to camera so they scroll.
+      const rowH = 160;
+      const startRow = Math.floor(cam / rowH) * rowH;
+      for (let y = startRow; y < cam + this.H + rowH; y += rowH) {
+        const screenY = y - cam;
+        if (screenY < -20 || screenY > this.H + 20) continue;
+        for (const pos of positions) {
+          // Bracket
+          g.fillStyle(0x5a3010, 1);
+          g.fillRect(pos.x - 3, screenY, 6, 4);
+          // Flame
+          const flick = Math.floor(this.time.now / 90 + y) % 3;
+          g.fillStyle(flameColors[flick], 0.95);
+          g.fillRect(pos.x - 3, screenY - 8, 6, 6);
+          g.fillStyle(0xffeeaa, 0.8);
+          g.fillRect(pos.x - 1, screenY - 10, 2, 3);
+        }
+      }
+    }
+
+    accentIron(g, theme) {
+      // Rivets on the walls + occasional sparks in the middle.
+      const cam = this.cameraY || 0;
+      g.fillStyle(0x2a1a0a, 1);
+      const rowH = 50;
+      const startRow = Math.floor(cam / rowH) * rowH;
+      for (let y = startRow; y < cam + this.H; y += rowH) {
+        const sy = y - cam;
+        g.fillRect(8, sy, 3, 3);
+        g.fillRect(this.W - 11, sy, 3, 3);
+      }
+      // Sparks
+      const t = this.time.now;
+      g.fillStyle(theme.accent, 0.9);
+      for (let i = 0; i < 6; i++) {
+        const phase = ((t + i * 137) % 1500) / 1500;
+        if (phase > 0.2) continue;
+        const x = 20 + (i * 131) % (this.W - 40);
+        const y = 60 + (i * 247) % (this.H - 120);
+        const life = 1 - phase / 0.2;
+        const sz = 1 + Math.floor(life * 2);
+        g.fillRect(x, y, sz, sz);
+      }
+    }
+
+    accentLava(g, theme) {
+      // Rising embers + hot glow at bottom.
+      g.fillStyle(0xff4010, 0.18);
+      g.fillRect(0, this.H - 30, this.W, 30);
+      g.fillStyle(0xff7a20, 0.12);
+      g.fillRect(0, this.H - 12, this.W, 12);
+      const t = this.time.now * 0.001;
+      const rand = this._rng(1337);
+      for (let i = 0; i < 40; i++) {
+        const x0 = rand() * this.W;
+        const off = rand() * this.H;
+        const rise = (off + t * (30 + rand() * 40)) % this.H;
+        const y = this.H - rise;
+        const x = x0 + Math.sin(t * 2 + i) * 10;
+        g.fillStyle(i % 3 === 0 ? 0xfff080 : 0xff8a2a, 0.7);
+        g.fillRect(x, y, 2, 2);
+      }
+    }
+
+    accentForest(g, theme) {
+      // Drifting leaves + vines on walls.
+      const t = this.time.now * 0.0006;
+      const cam = this.cameraY || 0;
+      // Vines
+      g.fillStyle(0x1e4020, 0.7);
+      const rowH = 40;
+      const start = Math.floor(cam / rowH) * rowH;
+      for (let y = start; y < cam + this.H; y += rowH) {
+        const sy = y - cam;
+        const kink = Math.sin((y + t * 100) * 0.07) * 4;
+        g.fillRect(2 + kink, sy, 3, rowH);
+        g.fillRect(this.W - 5 - kink, sy, 3, rowH);
+      }
+      // Leaves
+      for (let i = 0; i < 24; i++) {
+        const x = ((i * 47 + t * 90) % (this.W + 40)) - 20;
+        const y = ((i * 93 + t * 70) % (this.H + 20)) - 10;
+        const col = i % 3 === 0 ? theme.accent : theme.top;
+        g.fillStyle(col, 0.75);
+        g.fillRect(x, y, 4, 2);
+        g.fillRect(x + 1, y + 2, 2, 2);
+      }
+    }
+
+    accentStorm(g, theme) {
+      // Drifting purple clouds + occasional lightning flash.
+      const t = this.time.now * 0.0005;
+      const rand = this._rng(9999);
+      g.fillStyle(0x9068d8, 0.18);
+      for (let i = 0; i < 10; i++) {
+        const x = ((rand() * this.W + t * 30 + i * 150) % (this.W + 200)) - 100;
+        const y = rand() * this.H;
+        g.fillRect(x, y, 120, 10);
+        g.fillRect(x + 10, y - 4, 100, 4);
+        g.fillRect(x + 20, y + 10, 80, 4);
+      }
+      // Lightning: bright short flash every few seconds
+      const flashPhase = (this.time.now % 4000) / 4000;
+      if (flashPhase < 0.04) {
+        g.fillStyle(0xffffff, (0.04 - flashPhase) * 15);
+        g.fillRect(0, 0, this.W, this.H);
+      }
+    }
+
+    accentSpace(g, theme) {
+      // Parallax starfield in three depths.
+      const cam = this.cameraY || 0;
+      const starsFor = (seedBase, count, par, col, a) => {
+        const rng = this._rng(seedBase);
+        g.fillStyle(col, a);
+        for (let i = 0; i < count; i++) {
+          const bx = rng() * this.W;
+          const by = rng() * (this.H * 2);
+          const y = ((by + cam * par) % (this.H + 40)) - 20;
+          g.fillRect(bx, y, 1 + (i % 2), 1 + (i % 2));
+        }
+      };
+      starsFor(101, 50, 0.1, 0x9070ff, 0.55);
+      starsFor(202, 35, 0.2, 0xffffff, 0.70);
+      starsFor(303, 18, 0.4, theme.accent, 0.95);
+      // Distant nebula smear
+      g.fillStyle(0x5020a0, 0.20);
+      g.fillRect(0, this.H * 0.35, this.W, 60);
+      g.fillStyle(0x7040c0, 0.15);
+      g.fillRect(0, this.H * 0.55, this.W, 40);
     }
 
     // ---------------------------------------------------------------
@@ -685,13 +941,18 @@
     // ---------------------------------------------------------------
     floorY(n) { return this.FLOOR0_Y - n * CFG.FLOOR_HEIGHT; }
 
-    // Width fraction curve based on spec: 70% base at floor 0,
-    // drifting to ~40% at floor 200, ~25% at floor 500+.
+    // Width fraction uses the current level's widthFactor with a gentle
+    // interpolation toward the next level's factor so the narrowing is
+    // smooth rather than stepped.
     floorWidthFrac(n) {
       if (n <= 0) return 1.0;
-      if (n < 200) return 0.70 - 0.30 * (n / 200);
-      if (n < 500) return 0.40 - 0.15 * ((n - 200) / 300);
-      return Math.max(0.15, 0.25 - (n - 500) * 0.0002);
+      const idx = levelIndexFor(n);
+      const cur = LEVELS[idx];
+      const next = LEVELS[idx + 1];
+      if (!next) return 0.70 * cur.widthFactor;
+      const t = Phaser.Math.Clamp((n - cur.floor) / (next.floor - cur.floor), 0, 1);
+      const w = Phaser.Math.Linear(cur.widthFactor, next.widthFactor, t);
+      return 0.70 * w;
     }
 
     spawnFloor(n) {
@@ -720,62 +981,34 @@
       this.maxSpawnedFloor = n;
     }
 
-    // Full theme palette per 100-floor band.
-    // top/side = floor surfaces, wall = side walls, bg1/bg2 = sky gradient,
-    // accent = particles, glintA/B = wall hatching tones.
+    // Theme for a given floor number is driven by the level table.
     floorTheme(n) {
-      if (n < 100) return {
-        top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c,
-        bg1: 0x0b1d3a, bg2: 0x1a3d6c,
-        accent: 0xe8faff, glint: 0xd3f0ff,
-        name: "ICE",
-      };
-      if (n < 200) return {
-        top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x2e2e34,
-        bg1: 0x14141a, bg2: 0x2a2a32,
-        accent: 0xe0e0e0, glint: 0xa8a8a8,
-        name: "STONE",
-      };
-      if (n < 300) return {
-        top: 0xffb27a, side: 0xcc3a0a, wall: 0x5a1400,
-        bg1: 0x200500, bg2: 0x501200,
-        accent: 0xffd27a, glint: 0xff7a30,
-        name: "LAVA",
-      };
-      if (n < 400) return {
-        top: 0xb8f0a8, side: 0x2a7a38, wall: 0x14401e,
-        bg1: 0x061505, bg2: 0x0f2e18,
-        accent: 0xf0ffe0, glint: 0x6acb7a,
-        name: "FOREST",
-      };
-      return {
-        top: 0xd8c0ff, side: 0x5e3fa0, wall: 0x261048,
-        bg1: 0x04001a, bg2: 0x170a44,
-        accent: 0xfff0ff, glint: 0xa47fff,
-        name: "SPACE",
-      };
+      return THEMES[levelFor(n).themeKey];
     }
 
-    // Linearly blend two themes at the band boundary for smooth transitions.
-    // Blend ramps over the last/first 10 floors of each band.
+    // Smoothly blend between current and next level's theme over the last
+    // 8 floors before a level boundary.
     currentTheme() {
       const n = this.player ? this.player.highestFloor : 0;
-      const band = Math.floor(n / 100);
-      const intoBand = n - band * 100;
-      if (intoBand < 90) return this.floorTheme(n);
-      // Blend toward next band
-      const t = (intoBand - 90) / 10;
-      const a = this.floorTheme(n);
-      const b = this.floorTheme(band * 100 + 100);
+      const idx = levelIndexFor(n);
+      const cur = LEVELS[idx];
+      const next = LEVELS[idx + 1];
+      const a = THEMES[cur.themeKey];
+      if (!next) return a;
+      const floorsLeft = next.floor - n;
+      if (floorsLeft > 8) return a;
+      const t = 1 - floorsLeft / 8;
+      const b = THEMES[next.themeKey];
       return {
-        top:    lerpColor(a.top, b.top, t),
-        side:   lerpColor(a.side, b.side, t),
-        wall:   lerpColor(a.wall, b.wall, t),
-        bg1:    lerpColor(a.bg1, b.bg1, t),
-        bg2:    lerpColor(a.bg2, b.bg2, t),
+        top:    lerpColor(a.top,    b.top,    t),
+        side:   lerpColor(a.side,   b.side,   t),
+        wall:   lerpColor(a.wall,   b.wall,   t),
+        bg1:    lerpColor(a.bg1,    b.bg1,    t),
+        bg2:    lerpColor(a.bg2,    b.bg2,    t),
         accent: lerpColor(a.accent, b.accent, t),
-        glint:  lerpColor(a.glint, b.glint, t),
-        name: a.name,
+        glint:  lerpColor(a.glint,  b.glint,  t),
+        name:   a.name,
+        accentFn: a.accentFn,
       };
     }
 
@@ -1103,6 +1336,13 @@
         const prevBest = p.highestFloor;
         p.highestFloor = toFloor;
 
+        // Level-up detection (fires before milestones so banners stack nicely)
+        const prevLevelIdx = levelIndexFor(prevBest);
+        const newLevelIdx  = levelIndexFor(toFloor);
+        if (newLevelIdx > prevLevelIdx) {
+          this.triggerLevelUp(LEVELS[newLevelIdx]);
+        }
+
         // Milestone flashes
         for (let m = 0; m < CFG.MILESTONES.length; m++) {
           const ms = CFG.MILESTONES[m];
@@ -1411,6 +1651,52 @@
     // ---------------------------------------------------------------
     // Milestone flash at floors 100 / 250 / 500 / 1000
     // ---------------------------------------------------------------
+    triggerLevelUp(level) {
+      this.audio.milestone();
+      const idx = LEVELS.indexOf(level);
+      const cx = this.W / 2;
+      const cy = this.H * 0.38;
+      const size = Math.round(Math.min(this.W, this.H) * 0.065);
+      const nameSize = Math.round(Math.min(this.W, this.H) * 0.10);
+
+      const line1 = this.add.text(cx, cy - nameSize * 0.6, `LEVEL ${idx + 1}`, {
+        fontFamily: "Courier New, monospace",
+        fontSize: size + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 6,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1750).setAlpha(0);
+
+      const line2 = this.add.text(cx, cy + nameSize * 0.15, level.name, {
+        fontFamily: "Courier New, monospace",
+        fontSize: nameSize + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 7,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1750).setAlpha(0);
+
+      this.tweens.add({
+        targets: [line1, line2], alpha: 1, scale: { from: 0.5, to: 1.1 },
+        duration: 280, ease: "Back.Out",
+      });
+      this.tweens.add({
+        targets: [line1, line2], alpha: 0, scale: 1.25, y: "-=40",
+        delay: 1500, duration: 700, ease: "Sine.In",
+        onComplete: () => { line1.destroy(); line2.destroy(); },
+      });
+
+      // Screen-tint flash using the incoming theme's accent color.
+      const nextTheme = THEMES[level.themeKey];
+      const flash = this.add.graphics().setScrollFactor(0).setDepth(1600);
+      flash.fillStyle(nextTheme.accent, 0.35);
+      flash.fillRect(0, 0, this.W, this.H);
+      this.tweens.add({
+        targets: flash, alpha: 0, duration: 550, ease: "Sine.Out",
+        onComplete: () => flash.destroy(),
+      });
+
+      // Ratchet scroll speed to the new level baseline so pressure rises.
+      if (this.scrollActive && this.scrollSpeed < level.scrollSpeed) {
+        this.scrollSpeed = level.scrollSpeed;
+      }
+    }
+
     triggerMilestone(n) {
       this.audio.milestone();
       const msg = n >= 1000 ? `FLOOR ${n}!\nLEGEND.`
@@ -1466,20 +1752,22 @@
       // Trigger auto-scroll once the player first reaches the start floor.
       if (!this.scrollActive && p.highestFloor >= CFG.SCROLL_START_FLOOR) {
         this.scrollActive = true;
-        this.scrollSpeed = CFG.SCROLL_INITIAL_SPEED;
+        this.scrollSpeed = Math.max(CFG.SCROLL_INITIAL_SPEED, levelFor(p.highestFloor).scrollSpeed);
         this.scrollStartedAt = this.time.now;
         this.nextSpeedupAt  = this.time.now + CFG.SCROLL_INCREMENT_MS;
         this.triggerHurryUp(false);
       }
 
       if (this.scrollActive) {
-        // Scheduled speed-ups
+        // Scheduled speed-ups (still +20 every 30s for in-level pressure).
         if (this.time.now >= this.nextSpeedupAt) {
           this.scrollSpeed += CFG.SCROLL_INCREMENT;
           this.nextSpeedupAt = this.time.now + CFG.SCROLL_INCREMENT_MS;
           this.triggerHurryUp(true);
         }
-        // Camera Y decreases over time (climbs into negative = up).
+        // Keep up with the level baseline, but never slow down.
+        const baseline = levelFor(p.highestFloor).scrollSpeed;
+        if (this.scrollSpeed < baseline) this.scrollSpeed = baseline;
         this.cameraY -= this.scrollSpeed * dt;
       }
 
