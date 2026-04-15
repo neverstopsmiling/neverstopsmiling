@@ -162,6 +162,129 @@
   }
 
   // ------------------------------------------------------------------
+  // AudioMgr - procedural Web Audio (no assets)
+  // ------------------------------------------------------------------
+  class AudioMgr {
+    constructor() {
+      this.ctx = null;
+      this.master = null;
+      this.enabled = true;
+      this.muted = false;
+    }
+    init() {
+      if (this.ctx) {
+        if (this.ctx.state === "suspended") this.ctx.resume();
+        return;
+      }
+      try {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) { this.enabled = false; return; }
+        this.ctx = new Ctor();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.55;
+        this.master.connect(this.ctx.destination);
+        if (this.ctx.state === "suspended") this.ctx.resume();
+      } catch (_) {
+        this.enabled = false;
+      }
+    }
+    toggleMute() {
+      this.muted = !this.muted;
+      if (this.master) this.master.gain.value = this.muted ? 0 : 0.55;
+      return this.muted;
+    }
+    // One-shot primitive: oscillator with envelope and optional freq sweep.
+    _blip(opts) {
+      if (!this.enabled || !this.ctx || this.muted) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime + (opts.delay || 0);
+      const dur = opts.dur || 0.08;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = opts.type || "sine";
+      osc.frequency.setValueAtTime(opts.f0, now);
+      if (opts.f1 != null) {
+        if (opts.linear) osc.frequency.linearRampToValueAtTime(opts.f1, now + dur);
+        else osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.f1), now + dur);
+      }
+      // ADSR-ish envelope
+      const peak = opts.vol != null ? opts.vol : 0.22;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(peak, now + Math.min(0.01, dur * 0.2));
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(gain).connect(this.master);
+      osc.start(now);
+      osc.stop(now + dur + 0.02);
+    }
+    _noise(dur, vol, bp) {
+      if (!this.enabled || !this.ctx || this.muted) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      const length = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buf = ctx.createBuffer(1, length, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / length);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.value = vol;
+      if (bp) {
+        const f = ctx.createBiquadFilter();
+        f.type = "bandpass";
+        f.frequency.value = bp;
+        f.Q.value = 6;
+        src.connect(f).connect(g).connect(this.master);
+      } else {
+        src.connect(g).connect(this.master);
+      }
+      src.start(now);
+      src.stop(now + dur + 0.02);
+    }
+
+    jump(speedFrac) {
+      // Upward sweep; higher top pitch when jumping at full sprint.
+      const end = 320 + speedFrac * 300;
+      this._blip({ type: "square",   f0: 140, f1: end, dur: 0.08, vol: 0.22 });
+      this._blip({ type: "triangle", f0: 280, f1: end * 1.5, dur: 0.08, vol: 0.08 });
+    }
+    land(impact) {
+      // Low thud: fast sine thump + a bit of shaped noise.
+      this._blip({ type: "sine", f0: 160, f1: 60, dur: 0.06, vol: 0.20 + impact * 0.1 });
+      this._noise(0.05, 0.08 + impact * 0.05, 220);
+    }
+    wallBounce() {
+      this._blip({ type: "triangle", f0: 1400, f1: 2600, dur: 0.05, vol: 0.20, linear: true });
+      this._blip({ type: "square",   f0: 900,  f1: 1700, dur: 0.04, vol: 0.10, linear: true, delay: 0.005 });
+    }
+    comboReward(tierIdx) {
+      // Ascending 3-note chime; key lifts with tier.
+      const base = 523.25 + tierIdx * 40;
+      const notes = [base, base * 1.2599, base * 1.4983];
+      notes.forEach((f, i) => {
+        this._blip({ type: "triangle", f0: f, dur: 0.18, vol: 0.18, delay: i * 0.09 });
+      });
+    }
+    hurryUp(strong) {
+      const f = strong ? 980 : 760;
+      this._blip({ type: "square", f0: f, f1: f * 0.7, dur: 0.1, vol: 0.22, linear: true });
+      this._blip({ type: "square", f0: f, f1: f * 0.7, dur: 0.1, vol: 0.22, linear: true, delay: 0.14 });
+      if (strong) this._noise(0.12, 0.04, 2200);
+    }
+    gameOver() {
+      const notes = [523, 440, 349, 262, 196];
+      notes.forEach((f, i) => {
+        this._blip({ type: "triangle", f0: f, dur: 0.22, vol: 0.20, delay: i * 0.18 });
+      });
+    }
+    milestone() {
+      const notes = [523, 659, 784, 1047];
+      notes.forEach((f, i) => {
+        this._blip({ type: "triangle", f0: f, dur: 0.22, vol: 0.20, delay: i * 0.1 });
+      });
+    }
+  }
+
+  // ------------------------------------------------------------------
   // GameScene - will grow in subsequent phases
   // ------------------------------------------------------------------
   class GameScene extends Phaser.Scene {
@@ -170,6 +293,14 @@
     create() {
       this.W = this.scale.gameSize.width;
       this.H = this.scale.gameSize.height;
+
+      this.audio = new AudioMgr();
+      // Browsers require a user gesture; warm the context on first input.
+      const armAudio = () => this.audio.init();
+      this.input.once("pointerdown", armAudio);
+      this.input.keyboard.on("keydown", armAudio);
+      // M key toggles mute
+      this.input.keyboard.on("keydown-M", () => this.audio.toggleMute());
 
       // Persistent bests (loaded once at boot, updated during play)
       this.best = {
@@ -605,6 +736,7 @@
         p.vy = -(CFG.BASE_JUMP + speedFrac * CFG.BONUS_JUMP);
         p.onGround = false;
         p.jumpStartFloor = p.currentFloor;
+        this.audio.jump(speedFrac);
       }
 
       // ---- Gravity ----
@@ -716,8 +848,10 @@
       const prevFloor = p.currentFloor;
       p.currentFloor = toFloor;
 
-      // Landing particle burst
+      // Landing particle burst + sound
       this.spawnLandParticles(p.x, floor.y, this.floorTheme(floor.n));
+      const impact = Phaser.Math.Clamp((p.vy === 0 ? 0 : 0.5) + (p.prevY > floor.y ? (p.prevY - floor.y) / 200 : 0), 0, 1);
+      this.audio.land(impact);
 
       const floorsClearedSinceJump = toFloor - fromFloor;
 
@@ -775,6 +909,10 @@
       const tier = this.comboTierFor(n);
       if (!tier) return;
       this.spawnRewardPopup(tier);
+      // Tier index drives the chime key
+      const tierIdx =
+        n >= 100 ? 5 : n >= 50 ? 4 : n >= 30 ? 3 : n >= 20 ? 2 : n >= 10 ? 1 : 0;
+      this.audio.comboReward(tierIdx);
     }
 
     comboTierFor(n) {
@@ -824,7 +962,7 @@
     }
 
     onWallBounce() {
-      // Hook for Phase 7 audio / particle feedback.
+      this.audio.wallBounce();
       const p = this.player;
       const theme = this.currentTheme();
       const xWall = p.wallHitSide === -1 ? CFG.WALL_THICKNESS : this.W - CFG.WALL_THICKNESS;
@@ -889,6 +1027,7 @@
     // Milestone flash at floors 100 / 250 / 500 / 1000
     // ---------------------------------------------------------------
     triggerMilestone(n) {
+      this.audio.milestone();
       const msg = n >= 1000 ? `FLOOR ${n}!\nLEGEND.`
                 : n >= 500  ? `FLOOR ${n}!\nINCREDIBLE!`
                 : n >= 250  ? `FLOOR ${n}!\nKEEP GOING!`
@@ -1070,6 +1209,7 @@
     triggerHurryUp(strong) {
       this.hurryFlashEndsAt = this.time.now + (strong ? 1800 : 1200);
       this.hurryFlashStrong = strong;
+      this.audio.hurryUp(strong);
     }
 
     drawHurryUp() {
@@ -1127,6 +1267,7 @@
 
     triggerGameOver() {
       this.gameOver = true;
+      this.audio.gameOver();
       // Persist all three bests to localStorage.
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
