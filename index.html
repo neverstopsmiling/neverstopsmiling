@@ -205,6 +205,8 @@
         this.floors[0].x = 0;
         this.floors[0].w = this.W;
       }
+      // Rebuild HUD so it re-anchors to the new viewport.
+      if (this.hud) this.buildHUD();
     }
 
     // Simple placeholder gradient backdrop; themed version comes in Phase 6.
@@ -303,6 +305,18 @@
       this.gameOver = false;
       this.gameOverOverlay = null;
       this.runStartTime = this.time.now;
+
+      // Combo + score
+      this.score = 0;
+      this.combo = {
+        count: 0,
+        timer: 0,                // seconds remaining (0 = inactive)
+        longest: 0,              // longest combo this run
+      };
+      this.rewardPopups = [];    // active reward text objects
+
+      // Build / refresh HUD
+      this.buildHUD();
     }
 
     // ---------------------------------------------------------------
@@ -608,17 +622,105 @@
     // ---------------------------------------------------------------
     onLand(floor) {
       const p = this.player;
-      if (p.vy === 0 && p.prevY - p.y > 40) p.crouchT = 1;
-      if (!p.crouchT) p.crouchT = 1;
-      p.currentFloor = floor.n;
-      if (floor.n > p.highestFloor) {
-        p.highestFloor = floor.n;
-        // Proactively ensure the tower is built well above the player.
-        const wantUpTo = floor.n + 80;
+      p.crouchT = 1;
+
+      const fromFloor = p.jumpStartFloor;
+      const toFloor   = floor.n;
+      const prevFloor = p.currentFloor;
+      p.currentFloor = toFloor;
+
+      const floorsClearedSinceJump = toFloor - fromFloor;
+
+      // --- New-floor scoring ---
+      if (toFloor > p.highestFloor) {
+        const gained = toFloor - p.highestFloor;
+        // Multiplier is additive: 1 + (count * 0.5). count 0 -> 1x.
+        const mult = 1 + this.combo.count * 0.5;
+        this.score += Math.round(CFG.POINTS_PER_FLOOR * gained * mult);
+        p.highestFloor = toFloor;
+
+        // Keep the tower built well above the player
+        const wantUpTo = toFloor + 80;
         if (wantUpTo > this.maxSpawnedFloor) {
           for (let k = this.maxSpawnedFloor + 1; k <= wantUpTo; k++) this._createFloor(k);
         }
+      } else if (toFloor < prevFloor) {
+        // Fell to a lower floor - revoke the points for the drop.
+        const lost = prevFloor - toFloor;
+        this.score = Math.max(0, this.score - lost * CFG.POINTS_PER_FLOOR);
       }
+
+      // --- Combo update ---
+      // "Combo ends: any 1-floor jump, falling to a lower floor, or meter runs out"
+      if (floorsClearedSinceJump >= CFG.COMBO_MIN_FLOORS) {
+        this.combo.count += 1;
+        this.combo.timer = CFG.COMBO_TIMEOUT_MS / 1000;
+        if (this.combo.count > this.combo.longest) {
+          this.combo.longest = this.combo.count;
+        }
+        this.maybeShowComboReward(this.combo.count);
+      } else {
+        // Anything less than 2 floors (or a net drop) breaks any streak.
+        if (this.combo.count > 0) this.breakCombo();
+      }
+    }
+
+    breakCombo() {
+      this.combo.count = 0;
+      this.combo.timer = 0;
+    }
+
+    // Reward thresholds from the spec: 5/10/20/30/50/100+
+    maybeShowComboReward(n) {
+      const tier = this.comboTierFor(n);
+      if (!tier) return;
+      this.spawnRewardPopup(tier);
+    }
+
+    comboTierFor(n) {
+      // Only fire the pop-up when we just crossed a threshold.
+      if (n === 5)   return "GOOD!";
+      if (n === 10)  return "SWEET!";
+      if (n === 20)  return "EXCELLENT!";
+      if (n === 30)  return "FANTASTIC!";
+      if (n === 50)  return "EXTREME!";
+      if (n === 100) return "GODLIKE!";
+      // Every +25 beyond 100 keeps GODLIKE alive so marathon combos still feel good.
+      if (n > 100 && (n - 100) % 25 === 0) return "GODLIKE!";
+      return null;
+    }
+
+    spawnRewardPopup(text) {
+      const cx = this.W / 2;
+      const cy = this.H * 0.38;
+      const size = Math.round(Math.min(this.W, this.H) * 0.11);
+      const label = this.add.text(cx, cy, text, {
+        fontFamily: "Courier New, monospace",
+        fontSize: size + "px",
+        fontStyle: "bold",
+        color: "#ffdf3c",
+        stroke: "#802000",
+        strokeThickness: 8,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1700).setAlpha(0);
+
+      this.tweens.add({
+        targets: label,
+        alpha: { from: 0, to: 1 },
+        scale: { from: 0.6, to: 1.15 },
+        y: cy - 20,
+        ease: "Back.Out",
+        duration: 220,
+      });
+      this.tweens.add({
+        targets: label,
+        alpha: 0,
+        scale: 0.95,
+        y: cy - 60,
+        delay: 900,
+        duration: 600,
+        ease: "Sine.In",
+        onComplete: () => label.destroy(),
+      });
     }
 
     onWallBounce() {
@@ -658,6 +760,108 @@
       }
 
       this.cameras.main.setScroll(0, this.cameraY);
+    }
+
+    // ---------------------------------------------------------------
+    // Combo timer update (called per frame)
+    // ---------------------------------------------------------------
+    updateCombo(dt) {
+      if (this.combo.timer > 0) {
+        this.combo.timer -= dt;
+        if (this.combo.timer <= 0) {
+          this.combo.timer = 0;
+          if (this.combo.count > 0) this.breakCombo();
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // HUD (floor / score / best / combo meter)
+    // ---------------------------------------------------------------
+    buildHUD() {
+      if (this.hud) this.hud.container.destroy();
+      const c = this.add.container(0, 0).setScrollFactor(0).setDepth(1100);
+
+      const pad = 14;
+      const small = Math.max(14, Math.round(Math.min(this.W, this.H) * 0.032));
+      const big   = Math.max(18, Math.round(Math.min(this.W, this.H) * 0.045));
+
+      const floorTxt = this.add.text(pad, pad, "FLOOR 0", {
+        fontFamily: "Courier New, monospace",
+        fontSize: big + "px", fontStyle: "bold",
+        color: "#9cd9ff", stroke: "#000", strokeThickness: 4,
+      });
+      c.add(floorTxt);
+
+      const scoreTxt = this.add.text(this.W / 2, pad, "0", {
+        fontFamily: "Courier New, monospace",
+        fontSize: big + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 4,
+      }).setOrigin(0.5, 0);
+      c.add(scoreTxt);
+
+      const bestTxt = this.add.text(this.W - pad, pad, "BEST " + this.best.score, {
+        fontFamily: "Courier New, monospace",
+        fontSize: small + "px",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
+      }).setOrigin(1, 0);
+      c.add(bestTxt);
+
+      // Combo meter on the left side
+      const meterBG = this.add.graphics();
+      c.add(meterBG);
+      const meterFill = this.add.graphics();
+      c.add(meterFill);
+
+      const comboTxt = this.add.text(pad + 9, this.H * 0.5, "", {
+        fontFamily: "Courier New, monospace",
+        fontSize: big + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 5,
+      }).setOrigin(0.5);
+      c.add(comboTxt);
+
+      this.hud = {
+        container: c,
+        floorTxt, scoreTxt, bestTxt, comboTxt,
+        meterBG, meterFill,
+        pad, small, big,
+      };
+    }
+
+    drawHUD() {
+      if (!this.hud) return;
+      const p = this.player;
+      this.hud.floorTxt.setText("FLOOR " + p.highestFloor);
+      this.hud.scoreTxt.setText(String(this.score));
+      this.hud.bestTxt.setText("BEST " + Math.max(this.best.score, this.score));
+
+      // Combo meter
+      const mbg = this.hud.meterBG;
+      const mf  = this.hud.meterFill;
+      mbg.clear(); mf.clear();
+
+      const mx = this.hud.pad;
+      const myTop = this.H * 0.25;
+      const mw = 10;
+      const mh = this.H * 0.50;
+
+      // Track
+      mbg.fillStyle(0x000000, 0.5);
+      mbg.fillRect(mx - 2, myTop - 2, mw + 4, mh + 4);
+      mbg.fillStyle(0x1a3a66, 1);
+      mbg.fillRect(mx, myTop, mw, mh);
+
+      if (this.combo.count > 0 && this.combo.timer > 0) {
+        const frac = Phaser.Math.Clamp(this.combo.timer / (CFG.COMBO_TIMEOUT_MS / 1000), 0, 1);
+        const fillH = mh * frac;
+        const color = frac > 0.5 ? 0xffdf3c : (frac > 0.2 ? 0xff8a2a : 0xff3030);
+        mf.fillStyle(color, 1);
+        mf.fillRect(mx, myTop + (mh - fillH), mw, fillH);
+        this.hud.comboTxt.setText("x" + this.combo.count);
+        this.hud.comboTxt.setVisible(true);
+      } else {
+        this.hud.comboTxt.setVisible(false);
+      }
     }
 
     // ---------------------------------------------------------------
@@ -723,10 +927,18 @@
 
     triggerGameOver() {
       this.gameOver = true;
-      // Persist bests (Phase 5 adds score/combo persistence; floor now.)
+      // Persist all three bests to localStorage.
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
         lsSet(LS_KEYS.bestFloor, this.best.floor);
+      }
+      if (this.score > this.best.score) {
+        this.best.score = this.score;
+        lsSet(LS_KEYS.bestScore, this.best.score);
+      }
+      if (this.combo.longest > this.best.longestCombo) {
+        this.best.longestCombo = this.combo.longest;
+        lsSet(LS_KEYS.longestCombo, this.best.longestCombo);
       }
       this.showGameOverScreen();
     }
@@ -757,7 +969,12 @@
 
       const lines = [
         `FLOOR REACHED:  ${this.player.highestFloor}`,
+        `SCORE:          ${this.score}`,
+        `LONGEST COMBO:  x${this.combo.longest}`,
+        ``,
+        `BEST SCORE:     ${this.best.score}`,
         `BEST FLOOR:     ${this.best.floor}`,
+        `BEST COMBO:     x${this.best.longestCombo}`,
       ];
       lines.forEach((t, i) => {
         const line = this.add.text(cx, cy - titleSize * 0.1 + i * (lineSize * 1.3), t, {
@@ -876,11 +1093,13 @@
       const dt = Math.min(delta / 1000, 1 / 30);
       this.readInput();
       this.updatePhysics(dt);
+      this.updateCombo(dt);
       this.updateCamera(dt);
       this.drawWalls();
       this.drawFloors();
       this.drawPlayer();
       this.drawHurryUp();
+      this.drawHUD();
       this.checkGameOver();
     }
   }
