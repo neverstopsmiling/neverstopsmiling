@@ -616,7 +616,13 @@
         currentFloor: 0,
         highestFloor: 0,
         jumpStartFloor: 0,
+        // Flip / somersault
+        rotation: 0,             // current body rotation in radians
+        rotRate: 0,              // rad/s while airborne (0 = no flip)
+        jumpSpeedFrac: 0,        // |vx|/maxSpeed at the instant of takeoff
       };
+      this.bestFlips = lsGetInt(LS_KEYS.bestFlips, 0);
+      this.bestFlipsThisRun = 0;
 
       // Floors are authored in world-space; spawn them once.
       this.floors = [];
@@ -773,50 +779,63 @@
       };
     }
 
-    // Pixel-art arctic climber drawn procedurally. Redraws each frame.
+    // Draws the player procedurally in local coordinates centered on
+    // (0,0) = body center. Position + rotation are applied via playerGfx
+    // transform so mid-air flips just work.
     drawPlayer() {
       const p = this.player;
       const g = this.playerGfx;
       g.clear();
 
-      const cx = p.x;
-      const feet = p.y;
-      const facing = p.facing;
-
-      // Base rectangle origin (top-left of body bounding box)
-      const bx = cx - p.w / 2;
-      const by = feet - p.h;
-
-      // Crouch squash on land
-      const crouch = p.crouchT; // 0..1
+      // Squash/stretch + facing lean (only on ground - while airborne
+      // the body itself rotates so no lean is needed).
+      const crouch = p.crouchT;
       const squash = 1 - crouch * 0.2;
       const stretch = p.onGround ? 1 : 1.05;
       const h = p.h * squash * stretch;
-      const yTop = feet - h;
+      const w = p.w;
 
-      // Running lean when going fast on ground
-      const speedFrac = Phaser.Math.Clamp(Math.abs(p.vx) / CFG.MAX_H_SPEED, 0, 1);
-      const lean = p.onGround ? facing * speedFrac * 4 : 0;
-
-      // --- Legs ---
-      // Ground + moving: legs alternate via runPhase. Airborne: tuck (both up).
       const airborne = !p.onGround;
+      const speedFrac = Phaser.Math.Clamp(Math.abs(p.vx) / CFG.MAX_H_SPEED, 0, 1);
+      const lean = p.onGround ? p.facing * speedFrac * 4 : 0;
+
+      // Body-center is the rotation pivot.
+      g.x = p.x;
+      g.y = p.y - h / 2;
+      g.rotation = p.rotation;
+      g.scaleX = p.facing < 0 ? -1 : 1; // mirror when facing left
+
+      // Origin inside the local frame: body center at (0,0).
+      // Draw everything relative to that.
+      const draw = this.characterDrawer || this.drawCharClimber;
+      draw.call(this, g, { w, h, lean, airborne, speedFrac, runPhase: p.runPhase, now: this.time.now, facing: p.facing });
+    }
+
+    // ----- Character drawers (local coords centered on body) -----
+    // Only the arctic climber is defined now. Phase 13 adds the roster.
+    drawCharClimber(g, o) {
+      const { w, h, lean, airborne, speedFrac, runPhase, now } = o;
+      const halfH = h / 2;
+
+      // Top-left of bounding box in local coords
+      const bx = -w / 2;
+      const by = -halfH;
+
+      // Legs
       const legW = 5;
       const legH = Math.max(4, h * 0.28);
-      const legY = yTop + h - legH;
-      const legSpread = p.w * 0.25;
-      const legLX = cx - legSpread - legW / 2;
-      const legRX = cx + legSpread - legW / 2;
+      const legY = by + h - legH;
+      const legSpread = w * 0.25;
+      const legLX = -legSpread - legW / 2;
+      const legRX =  legSpread - legW / 2;
 
-      g.fillStyle(0x2b2b30, 1); // dark pants
+      g.fillStyle(0x2b2b30, 1);
       if (airborne) {
-        // Tuck - knees up
         const tuckY = legY - legH * 0.6;
         g.fillRect(legLX, tuckY, legW, legH);
         g.fillRect(legRX, tuckY, legW, legH);
-      } else if (Math.abs(p.vx) > 20) {
-        // Running: alternate offsets
-        const s = Math.sin(p.runPhase);
+      } else if (speedFrac > 0.05) {
+        const s = Math.sin(runPhase);
         const off = s * legH * 0.4;
         g.fillRect(legLX, legY - off, legW, legH);
         g.fillRect(legRX, legY + off, legW, legH);
@@ -825,7 +844,7 @@
         g.fillRect(legRX, legY, legW, legH);
       }
 
-      // --- Boots ---
+      // Boots
       g.fillStyle(0x111318, 1);
       const bootH = 3;
       if (airborne) {
@@ -837,64 +856,50 @@
         g.fillRect(legRX - 1, legY + legH - bootH, legW + 2, bootH);
       }
 
-      // --- Parka body ---
+      // Parka
       const bodyH = h * 0.46;
-      const bodyY = yTop + h * 0.30;
+      const bodyY = by + h * 0.30;
       const bodyX = bx + lean;
       g.fillStyle(0x2e84d6, 1);
-      g.fillRect(bodyX, bodyY, p.w, bodyH);
-      // belt / fur trim bottom
+      g.fillRect(bodyX, bodyY, w, bodyH);
       g.fillStyle(0xffffff, 1);
-      g.fillRect(bodyX, bodyY + bodyH - 3, p.w, 3);
+      g.fillRect(bodyX, bodyY + bodyH - 3, w, 3);
 
-      // --- Arms ---
+      // Arms
       g.fillStyle(0x2067b0, 1);
       const armW = 4, armH = bodyH * 0.8;
       if (airborne) {
-        // Arms up for jump
         g.fillRect(bodyX - armW + 1, bodyY - armH * 0.4, armW, armH);
-        g.fillRect(bodyX + p.w - 1,  bodyY - armH * 0.4, armW, armH);
+        g.fillRect(bodyX + w - 1,    bodyY - armH * 0.4, armW, armH);
       } else {
-        const armSwing = Math.abs(p.vx) > 20 ? Math.sin(p.runPhase + Math.PI) * 4 : 0;
+        const armSwing = speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 4 : 0;
         g.fillRect(bodyX - armW + 1, bodyY + armSwing, armW, armH);
-        g.fillRect(bodyX + p.w - 1,  bodyY - armSwing, armW, armH);
+        g.fillRect(bodyX + w - 1,    bodyY - armSwing, armW, armH);
       }
 
-      // --- Head (with goggles + beanie) ---
-      const headW = p.w - 4;
+      // Head + beanie + goggles
+      const headW = w - 4;
       const headH = h * 0.30;
       const headX = bx + 2 + lean;
-      const headY = yTop;
-      // Skin
+      const headY = by;
       g.fillStyle(0xf2d1a8, 1);
       g.fillRect(headX, headY + 4, headW, headH - 4);
-      // Beanie
       g.fillStyle(0xd03030, 1);
       g.fillRect(headX, headY, headW, 6);
       g.fillStyle(0xffffff, 1);
-      g.fillRect(headX, headY - 2, 4, 3);   // pom
-      g.fillRect(headX + 4, headY - 0.5, headW - 4, 1.5); // band
-      // Goggles (orange lens)
+      g.fillRect(headX, headY - 2, 4, 3);
+      g.fillRect(headX + 4, headY - 0.5, headW - 4, 1.5);
       g.fillStyle(0x1a1a1a, 1);
       g.fillRect(headX, headY + 7, headW, 4);
       g.fillStyle(0xff9a3d, 1);
-      if (facing >= 0) {
-        g.fillRect(headX + headW - 7, headY + 8, 5, 2);
-      } else {
-        g.fillRect(headX + 2, headY + 8, 5, 2);
-      }
+      g.fillRect(headX + headW - 7, headY + 8, 5, 2);  // lens always on "forward" side (scaleX handles facing)
 
       // Scarf flutter
       g.fillStyle(0xffdc4a, 1);
       const scarfY = bodyY + 2;
-      const flutter = Math.sin((this.time.now + cx) * 0.02) * 2;
-      if (facing >= 0) {
-        g.fillRect(bodyX - 3, scarfY, 3, 4);
-        g.fillRect(bodyX - 5, scarfY + 2 + flutter, 3, 3);
-      } else {
-        g.fillRect(bodyX + p.w, scarfY, 3, 4);
-        g.fillRect(bodyX + p.w + 2, scarfY + 2 + flutter, 3, 3);
-      }
+      const flutter = Math.sin(now * 0.02) * 2;
+      g.fillRect(bodyX - 3, scarfY, 3, 4);
+      g.fillRect(bodyX - 5, scarfY + 2 + flutter, 3, 3);
     }
 
     // ---------------------------------------------------------------
@@ -918,11 +923,23 @@
       }
 
       // ---- Jump ----
-      if (this.jumpPressed && p.onGround) {
+      if (this.jumpPressed && (p.onGround || (this.time.now - this.lastGroundTime) <= 80)) {
         const speedFrac = Math.abs(p.vx) / CFG.MAX_H_SPEED;
         p.vy = -(CFG.BASE_JUMP + speedFrac * CFG.BONUS_JUMP);
         p.onGround = false;
         p.jumpStartFloor = p.currentFloor;
+        p.jumpSpeedFrac = speedFrac;
+        // Somersault mid-air when launched at high speed. Rotation sign
+        // follows the direction of travel so the flip looks "forward".
+        if (speedFrac >= 0.7) {
+          const dir = Math.sign(p.vx) || 1;
+          // 2.2 full turns per second at max speed, 0 turns at 70% speed.
+          const turnsPerSec = 2.2 * (speedFrac - 0.7) / 0.3;
+          p.rotRate = dir * Math.PI * 2 * turnsPerSec;
+        } else {
+          p.rotRate = 0;
+        }
+        p.rotation = 0;
         this.audio.jump(speedFrac);
       }
 
@@ -942,6 +959,17 @@
 
       // Track the last moment the player was grounded, used by coyote time.
       if (p.onGround) this.lastGroundTime = this.time.now;
+
+      // ---- Somersault rotation while airborne ----
+      if (!p.onGround && p.rotRate !== 0) {
+        p.rotation += p.rotRate * dt;
+      } else if (p.onGround) {
+        // Ease rotation to 0 on the ground so stance is upright.
+        if (p.rotation !== 0) {
+          const ease = Math.sign(p.rotation) * Math.min(Math.abs(p.rotation), Math.PI * 6 * dt);
+          p.rotation -= ease;
+        }
+      }
 
       // ---- Animation state ----
       if (p.onGround && Math.abs(p.vx) > 20) {
@@ -1043,6 +1071,27 @@
       const impact = Phaser.Math.Clamp((p.vy === 0 ? 0 : 0.5) + (p.prevY > floor.y ? (p.prevY - floor.y) / 200 : 0), 0, 1);
       this.audio.land(impact);
 
+      // --- Flip / somersault reward ---
+      const flips = Math.max(0, Math.floor(Math.abs(p.rotation) / (Math.PI * 2)));
+      let flipBonus = 0;
+      if (flips > 0) {
+        const mult = 1 + this.combo.count * 0.5;
+        flipBonus = Math.round(100 * flips * mult);
+        this.score += flipBonus;
+        if (flips > this.bestFlipsThisRun) this.bestFlipsThisRun = flips;
+        if (flips > this.bestFlips) {
+          this.bestFlips = flips;
+          lsSet(LS_KEYS.bestFlips, this.bestFlips);
+        }
+        this.spawnFlipPopup(flips, flipBonus);
+        // Audio: rising pair of pings scaled to flip count
+        this.audio.comboReward(Math.min(4, flips));
+      }
+      // Reset rotation & rotation rate now that the jump is done.
+      p.rotation = 0;
+      p.rotRate = 0;
+      p.jumpSpeedFrac = 0;
+
       const floorsClearedSinceJump = toFloor - fromFloor;
 
       // --- New-floor scoring ---
@@ -1075,8 +1124,9 @@
       }
 
       // --- Combo update ---
-      // "Combo ends: any 1-floor jump, falling to a lower floor, or meter runs out"
-      if (floorsClearedSinceJump >= CFG.COMBO_MIN_FLOORS) {
+      // Combo continues if we cleared >=2 floors OR completed at least 1 flip.
+      const qualifying = floorsClearedSinceJump >= CFG.COMBO_MIN_FLOORS || flips > 0;
+      if (qualifying) {
         this.combo.count += 1;
         this.combo.timer = CFG.COMBO_TIMEOUT_MS / 1000;
         if (this.combo.count > this.combo.longest) {
@@ -1084,9 +1134,35 @@
         }
         this.maybeShowComboReward(this.combo.count);
       } else {
-        // Anything less than 2 floors (or a net drop) breaks any streak.
         if (this.combo.count > 0) this.breakCombo();
       }
+    }
+
+    spawnFlipPopup(flips, bonus) {
+      const word = flips === 1 ? "1 FLIP" : `${flips} FLIPS`;
+      const color = flips >= 3 ? "#ff5cf0" : flips >= 2 ? "#ffaa00" : "#fff56a";
+      const text = `${word}  +${bonus}`;
+      const p = this.player;
+      // World-space popup near the character so it reads as a flip reward.
+      const wx = p.x;
+      const wy = p.y - p.h - 10;
+      const label = this.add.text(wx, wy, text, {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(Math.min(this.W, this.H) * 0.05) + "px",
+        fontStyle: "bold",
+        color,
+        stroke: "#000",
+        strokeThickness: 5,
+      }).setOrigin(0.5).setDepth(11);
+      this.tweens.add({
+        targets: label,
+        y: wy - 40,
+        alpha: { from: 1, to: 0 },
+        scale: { from: 0.6, to: 1.1 },
+        duration: 900,
+        ease: "Sine.Out",
+        onComplete: () => label.destroy(),
+      });
     }
 
     breakCombo() {
