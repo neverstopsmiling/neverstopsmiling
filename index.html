@@ -207,6 +207,18 @@
     },
   };
 
+  // Character roster - each has its own procedural drawer (method name
+  // on GameScene). All take the same options object and draw in local
+  // body-centered coordinates so rotation / facing transforms behave.
+  const CHARACTERS = [
+    { id: "climber", name: "ARCTIC CLIMBER", color: 0x2e84d6, drawFn: "drawCharClimber" },
+    { id: "penguin", name: "PENGUIN",        color: 0x1a1a1a, drawFn: "drawCharPenguin" },
+    { id: "dragon",  name: "DRAGON",         color: 0x3ac050, drawFn: "drawCharDragon"  },
+    { id: "trex",    name: "T-REX",          color: 0xe07020, drawFn: "drawCharTrex"    },
+    { id: "yeti",    name: "YETI",           color: 0xe4eef4, drawFn: "drawCharYeti"    },
+    { id: "robot",   name: "ROBOT",          color: 0xb0b4bc, drawFn: "drawCharRobot"   },
+  ];
+
   function levelIndexFor(n) {
     let idx = 0;
     for (let i = 0; i < LEVELS.length; i++) {
@@ -395,6 +407,8 @@
       this.input.keyboard.on("keydown", armAudio);
       // M key toggles mute
       this.input.keyboard.on("keydown-M", () => this.audio.toggleMute());
+      // C key opens character select (also cancels current if open)
+      this.input.keyboard.on("keydown-C", () => this.openCharacterSelect());
 
       // Persistent bests (loaded once at boot, updated during play)
       this.best = {
@@ -880,6 +894,17 @@
       this.bestFlips = lsGetInt(LS_KEYS.bestFlips, 0);
       this.bestFlipsThisRun = 0;
 
+      // Pull selected character and bind its drawer.
+      try {
+        const savedId = localStorage.getItem(LS_KEYS.character) || "climber";
+        const entry = CHARACTERS.find(c => c.id === savedId) || CHARACTERS[0];
+        this.characterId = entry.id;
+        this.characterDrawer = this[entry.drawFn] || this.drawCharClimber;
+      } catch (_) {
+        this.characterId = "climber";
+        this.characterDrawer = this.drawCharClimber;
+      }
+
       // Floors are authored in world-space; spawn them once.
       this.floors = [];
       this.maxSpawnedFloor = -1;
@@ -1133,6 +1158,299 @@
       const flutter = Math.sin(now * 0.02) * 2;
       g.fillRect(bodyX - 3, scarfY, 3, 4);
       g.fillRect(bodyX - 5, scarfY + 2 + flutter, 3, 3);
+    }
+
+    // ---- Penguin: black body, white tummy, orange beak + feet. Waddles.
+    drawCharPenguin(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const halfH = h / 2;
+      const bx = -w / 2, by = -halfH;
+      const waddle = !airborne && speedFrac > 0.05 ? Math.sin(runPhase * 0.8) * 2 : 0;
+
+      // Feet
+      g.fillStyle(0xff8a2a, 1);
+      if (airborne) {
+        g.fillRect(-w * 0.4, by + h - 10, w * 0.35, 4);
+        g.fillRect( w * 0.05, by + h - 10, w * 0.35, 4);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
+        g.fillRect(bx + 1,         by + h - 5 - s, w * 0.45, 4);
+        g.fillRect(bx + w - w*0.45 - 1, by + h - 5 + s, w * 0.45, 4);
+      }
+
+      // Body - teardrop shape approximated with two rects
+      g.fillStyle(0x0d0d14, 1);
+      g.fillRect(bx, by + h * 0.20 + waddle, w, h * 0.70);
+      // Rounded top via two shoulder corners
+      g.fillRect(bx + 2, by + h * 0.13 + waddle, w - 4, h * 0.10);
+      // White tummy
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + 4, by + h * 0.30 + waddle, w - 8, h * 0.45);
+
+      // Wings (flap when airborne)
+      g.fillStyle(0x0d0d14, 1);
+      const flap = airborne ? Math.sin(now * 0.025) * 4 : 0;
+      g.fillRect(bx - 2, by + h * 0.30 + waddle - flap, 4, h * 0.40);
+      g.fillRect(bx + w - 2, by + h * 0.30 + waddle + flap, 4, h * 0.40);
+
+      // Head (slightly narrower than body)
+      g.fillStyle(0x0d0d14, 1);
+      const hw = w * 0.70, hx = -hw / 2, hy = by + 2 + waddle;
+      g.fillRect(hx, hy, hw, h * 0.22);
+
+      // White cheek
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(hx + 2, hy + 4, hw - 4, 4);
+
+      // Eyes
+      g.fillStyle(0x000000, 1);
+      g.fillRect(hx + 3, hy + 5, 2, 2);
+      g.fillRect(hx + hw - 5, hy + 5, 2, 2);
+
+      // Beak (points forward = +x in local, scaleX handles facing)
+      g.fillStyle(0xff8a2a, 1);
+      g.fillRect(hw / 2 - 1, hy + h * 0.12, 5, 3);
+      g.fillStyle(0xcc5a10, 1);
+      g.fillRect(hw / 2 - 1, hy + h * 0.12 + 3, 3, 1);
+    }
+
+    // ---- Dragon: green scales, flapping wings, horned head, tail.
+    drawCharDragon(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+      const tailWag = Math.sin(now * 0.01) * 2 + (speedFrac * 3);
+
+      // Tail (behind = -x). Pointed.
+      g.fillStyle(0x2a9030, 1);
+      g.fillRect(bx - 8,  by + h * 0.55 + tailWag, 10, 4);
+      g.fillRect(bx - 12, by + h * 0.58 + tailWag, 5,  3);
+      g.fillStyle(0xfff080, 1);
+      g.fillRect(bx - 14, by + h * 0.60 + tailWag, 3,  2);
+
+      // Legs
+      g.fillStyle(0x1a6a20, 1);
+      if (airborne) {
+        g.fillRect(bx + 3, by + h - 7, 5, 7);
+        g.fillRect(bx + w - 8, by + h - 7, 5, 7);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
+        g.fillRect(bx + 3, by + h - 9 - s, 5, 9);
+        g.fillRect(bx + w - 8, by + h - 9 + s, 5, 9);
+      }
+
+      // Belly (lighter green/yellow)
+      g.fillStyle(0x88e080, 1);
+      g.fillRect(bx + 2, by + h * 0.50, w - 4, h * 0.35);
+
+      // Body
+      g.fillStyle(0x3ac050, 1);
+      g.fillRect(bx, by + h * 0.25, w, h * 0.50);
+
+      // Back spikes
+      g.fillStyle(0xfff080, 1);
+      g.fillRect(bx + w * 0.2, by + h * 0.22, 3, 3);
+      g.fillRect(bx + w * 0.5, by + h * 0.22, 3, 3);
+      g.fillRect(bx + w * 0.8, by + h * 0.22, 3, 3);
+
+      // Wings (flap when airborne)
+      const flap = airborne ? Math.sin(now * 0.03) * 4 : 1;
+      g.fillStyle(0x1a6a20, 1);
+      g.fillRect(bx - 2, by + h * 0.22 - 2 - flap, 10, 3);
+      g.fillRect(bx + w - 8, by + h * 0.22 - 2 - flap, 10, 3);
+      g.fillStyle(0x88e080, 1);
+      g.fillRect(bx - 2, by + h * 0.22 - flap, 10, 2);
+      g.fillRect(bx + w - 8, by + h * 0.22 - flap, 10, 2);
+
+      // Head
+      g.fillStyle(0x3ac050, 1);
+      g.fillRect(bx + w * 0.45, by + 2, w * 0.55, h * 0.30);
+      // Snout
+      g.fillRect(bx + w * 0.85, by + 8, w * 0.30, 5);
+      // Horns
+      g.fillStyle(0xfff080, 1);
+      g.fillRect(bx + w * 0.55, by - 2, 2, 4);
+      g.fillRect(bx + w * 0.70, by - 2, 2, 4);
+      // Eye
+      g.fillStyle(0xffff40, 1);
+      g.fillRect(bx + w * 0.80, by + 6, 3, 3);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(bx + w * 0.81, by + 7, 2, 2);
+      // Nostril
+      g.fillStyle(0x000000, 1);
+      g.fillRect(bx + w * 1.05, by + 9, 2, 1);
+    }
+
+    // ---- T-Rex: orange body, tiny arms, big tail, big head.
+    drawCharTrex(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+      const bob = !airborne && speedFrac > 0.05 ? Math.sin(runPhase) * 2 : 0;
+
+      // Tail curving back
+      g.fillStyle(0xc05010, 1);
+      g.fillRect(bx - 10, by + h * 0.55, 12, 5);
+      g.fillRect(bx - 16, by + h * 0.60, 7,  4);
+      g.fillRect(bx - 20, by + h * 0.65, 5,  3);
+
+      // Legs (powerful)
+      g.fillStyle(0xa04010, 1);
+      if (airborne) {
+        g.fillRect(bx + 2, by + h - 9, 6, 9);
+        g.fillRect(bx + w - 10, by + h - 9, 6, 9);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 4 : 0;
+        g.fillRect(bx + 2, by + h - 11 - s, 6, 11);
+        g.fillRect(bx + w - 10, by + h - 11 + s, 6, 11);
+      }
+      // Claws
+      g.fillStyle(0xffe080, 1);
+      g.fillRect(bx + 2, by + h - 2, 2, 2);
+      g.fillRect(bx + w - 10, by + h - 2, 2, 2);
+
+      // Body
+      g.fillStyle(0xe07020, 1);
+      g.fillRect(bx, by + h * 0.30 + bob, w, h * 0.55);
+      // Belly lighter
+      g.fillStyle(0xffb060, 1);
+      g.fillRect(bx + 2, by + h * 0.55 + bob, w - 4, h * 0.28);
+
+      // Tiny arms (dangle in front)
+      g.fillStyle(0xc05010, 1);
+      g.fillRect(bx + w * 0.65, by + h * 0.44 + bob, 3, 4);
+
+      // Head - big and boxy, points forward
+      g.fillStyle(0xe07020, 1);
+      g.fillRect(bx + w * 0.35, by + 2 + bob, w * 0.75, h * 0.32);
+      // Jaw teeth
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + w * 0.90, by + 14 + bob, 2, 2);
+      g.fillRect(bx + w * 0.96, by + 14 + bob, 2, 2);
+      g.fillRect(bx + w * 1.02, by + 14 + bob, 2, 2);
+      // Eye
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + w * 0.70, by + 6 + bob, 4, 3);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(bx + w * 0.72, by + 7 + bob, 2, 2);
+    }
+
+    // ---- Yeti: bigger white furry body, heavy stance.
+    drawCharYeti(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      // Yeti is a touch wider
+      const yw = w + 4;
+      const bx = -yw / 2, by = -h / 2;
+
+      // Legs (thick)
+      g.fillStyle(0x888a92, 1);
+      if (airborne) {
+        g.fillRect(bx + 3, by + h - 9, 8, 9);
+        g.fillRect(bx + yw - 11, by + h - 9, 8, 9);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
+        g.fillRect(bx + 3, by + h - 10 - s, 8, 10);
+        g.fillRect(bx + yw - 11, by + h - 10 + s, 8, 10);
+      }
+      // Feet
+      g.fillStyle(0x3a2a1a, 1);
+      g.fillRect(bx + 2, by + h - 3, 9, 3);
+      g.fillRect(bx + yw - 11, by + h - 3, 9, 3);
+
+      // Fur body
+      g.fillStyle(0xe4eef4, 1);
+      g.fillRect(bx, by + h * 0.25, yw, h * 0.65);
+      // Fur tufts
+      g.fillStyle(0xffffff, 1);
+      for (let i = 0; i < 5; i++) {
+        g.fillRect(bx + 2 + i * 5, by + h * 0.30, 3, 2);
+      }
+
+      // Arms (thick) - hanging
+      g.fillStyle(0xe4eef4, 1);
+      const armSwing = !airborne && speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 3 : 0;
+      if (airborne) {
+        g.fillRect(bx - 2, by + h * 0.30, 6, h * 0.45);
+        g.fillRect(bx + yw - 4, by + h * 0.30, 6, h * 0.45);
+      } else {
+        g.fillRect(bx - 2, by + h * 0.30 + armSwing, 6, h * 0.50);
+        g.fillRect(bx + yw - 4, by + h * 0.30 - armSwing, 6, h * 0.50);
+      }
+
+      // Paws (dark)
+      g.fillStyle(0x3a2a1a, 1);
+      g.fillRect(bx - 2, by + h * 0.72 + armSwing, 6, 4);
+      g.fillRect(bx + yw - 4, by + h * 0.72 - armSwing, 6, 4);
+
+      // Head (big)
+      g.fillStyle(0xe4eef4, 1);
+      const hw = yw - 4, hx = -hw / 2, hy = by;
+      g.fillRect(hx, hy, hw, h * 0.28);
+      // Face lighter area
+      g.fillStyle(0xf5f5f5, 1);
+      g.fillRect(hx + 2, hy + 6, hw - 4, h * 0.18);
+      // Eyes (brown)
+      g.fillStyle(0x5a3018, 1);
+      g.fillRect(hx + 4, hy + 8, 3, 3);
+      g.fillRect(hx + hw - 7, hy + 8, 3, 3);
+      // Nose
+      g.fillStyle(0x3a2a1a, 1);
+      g.fillRect(hx + hw / 2 - 1, hy + 13, 3, 2);
+      // Mouth
+      g.fillRect(hx + hw / 2 - 2, hy + h * 0.20, 5, 1);
+    }
+
+    // ---- Robot: chrome body, glowing visor, antenna.
+    drawCharRobot(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+
+      // Legs (square, piston-like)
+      g.fillStyle(0x505864, 1);
+      if (airborne) {
+        g.fillRect(bx + 3, by + h - 8, 5, 8);
+        g.fillRect(bx + w - 8, by + h - 8, 5, 8);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 2 : 0;
+        g.fillRect(bx + 3, by + h - 10 - s, 5, 10);
+        g.fillRect(bx + w - 8, by + h - 10 + s, 5, 10);
+      }
+      // Feet
+      g.fillStyle(0x22252c, 1);
+      g.fillRect(bx + 1, by + h - 3, 9, 3);
+      g.fillRect(bx + w - 10, by + h - 3, 9, 3);
+
+      // Body (chrome + panel lines)
+      g.fillStyle(0xb0b4bc, 1);
+      g.fillRect(bx, by + h * 0.28, w, h * 0.55);
+      // Panel line
+      g.fillStyle(0x707680, 1);
+      g.fillRect(bx + 2, by + h * 0.50, w - 4, 1);
+      // Chest light
+      const pulse = 0.4 + 0.3 * Math.abs(Math.sin(now * 0.005));
+      g.fillStyle(0x00e0ff, pulse + 0.3);
+      g.fillRect(bx + w / 2 - 2, by + h * 0.38, 4, 3);
+
+      // Arms (stiff)
+      g.fillStyle(0x909398, 1);
+      const armMove = !airborne && speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 3 : 0;
+      g.fillRect(bx - 3, by + h * 0.30 + armMove, 4, h * 0.42);
+      g.fillRect(bx + w - 1, by + h * 0.30 - armMove, 4, h * 0.42);
+
+      // Head (dome + antenna)
+      g.fillStyle(0xcdd1d8, 1);
+      g.fillRect(bx + 2, by + 2, w - 4, h * 0.22);
+      // Antenna
+      g.fillStyle(0x707680, 1);
+      g.fillRect(bx + w / 2 - 0.5, by - 4, 1, 4);
+      g.fillStyle(0xff3060, 1);
+      g.fillRect(bx + w / 2 - 1.5, by - 6, 3, 2);
+      // Visor
+      g.fillStyle(0x000000, 1);
+      g.fillRect(bx + 3, by + 7, w - 6, 4);
+      g.fillStyle(0x00e0ff, 0.95);
+      g.fillRect(bx + 4, by + 8, w - 8, 2);
+      // Visor glint
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + w - 7, by + 8, 2, 1);
     }
 
     // ---------------------------------------------------------------
@@ -2057,6 +2375,10 @@
       y += btnH + gap;
       addBtn(y, "SHARE",   0x444b66, 0xffdf3c, () => this.shareScore());
 
+      // Character button - opens the select screen from game-over.
+      y += btnH + gap;
+      addBtn(y, "CHARACTER", 0x1a1a24, 0xffdf3c, () => this.openCharacterSelect());
+
       // Tilt-invert toggle on mobile only (doesn't show up for desktops).
       if (this.tilt && this.tilt.enabled) {
         y += btnH + gap * 0.6;
@@ -2064,7 +2386,6 @@
         addBtn(y, tiltLabel, 0x223344, 0x9cd9ff, () => {
           this.tilt.invert = !this.tilt.invert;
           lsSet(LS_KEYS.tiltInvert, this.tilt.invert ? "1" : "0");
-          // Redraw overlay to refresh the label
           this.showGameOverScreen();
         });
       }
@@ -2073,6 +2394,122 @@
       this.input.keyboard.once("keydown-ENTER", () => this.gameOver && this.restartRun());
 
       this.gameOverOverlay = g;
+    }
+
+    openCharacterSelect() {
+      if (this.characterSelectOverlay) {
+        this.characterSelectOverlay.destroy();
+        this.characterSelectOverlay = null;
+        return;
+      }
+      const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2200);
+
+      const bg = this.add.graphics();
+      bg.fillStyle(0x000000, 0.82);
+      bg.fillRect(0, 0, this.W, this.H);
+      g.add(bg);
+
+      const S = Math.min(this.W, this.H);
+      const titleSize = Math.round(S * 0.08);
+
+      const title = this.add.text(this.W / 2, S * 0.05, "CHOOSE YOUR CLIMBER", {
+        fontFamily: "Courier New, monospace",
+        fontSize: titleSize + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 5,
+      }).setOrigin(0.5, 0);
+      g.add(title);
+
+      // 2 cols x 3 rows grid.
+      const cols = 2, rows = 3;
+      const gridTop = S * 0.05 + titleSize * 1.6;
+      const gridBottom = this.H - S * 0.12;
+      const gridW = Math.min(this.W - S * 0.1, S * 1.1);
+      const cellW = gridW / cols;
+      const cellH = (gridBottom - gridTop) / rows;
+      const gridX = (this.W - gridW) / 2;
+
+      const nameSize = Math.round(Math.min(cellH * 0.14, S * 0.03));
+      const scale = Math.min(cellW, cellH) / 60;
+
+      const close = () => {
+        g.destroy();
+        if (this.characterSelectOverlay === g) this.characterSelectOverlay = null;
+      };
+
+      CHARACTERS.forEach((c, i) => {
+        const col = i % cols, row = Math.floor(i / cols);
+        const cx = gridX + cellW * col + cellW / 2;
+        const cy = gridTop + cellH * row + cellH / 2;
+
+        const selected = c.id === this.characterId;
+        const cellBG = this.add.graphics();
+        cellBG.fillStyle(selected ? 0x223b66 : 0x12182a, 0.92);
+        cellBG.fillRoundedRect(cx - cellW * 0.45, cy - cellH * 0.45, cellW * 0.90, cellH * 0.90, 10);
+        cellBG.lineStyle(selected ? 3 : 2, selected ? 0xffdf3c : 0x9cd9ff, 1);
+        cellBG.strokeRoundedRect(cx - cellW * 0.45, cy - cellH * 0.45, cellW * 0.90, cellH * 0.90, 10);
+        g.add(cellBG);
+
+        // Character preview (uses the same drawers as in-game rendering)
+        const preview = this.drawCharacterPreview(c.id, cx, cy - nameSize * 1.2, scale);
+        g.add(preview);
+
+        const lbl = this.add.text(cx, cy + cellH * 0.30, c.name, {
+          fontFamily: "Courier New, monospace",
+          fontSize: nameSize + "px", fontStyle: "bold",
+          color: selected ? "#ffdf3c" : "#ffffff",
+          stroke: "#000", strokeThickness: 3,
+          align: "center",
+        }).setOrigin(0.5);
+        g.add(lbl);
+
+        const hit = this.add.zone(cx, cy, cellW * 0.90, cellH * 0.90)
+          .setOrigin(0.5).setInteractive({ useHandCursor: true });
+        g.add(hit);
+        hit.on("pointerdown", () => {
+          this.characterId = c.id;
+          try { localStorage.setItem(LS_KEYS.character, c.id); } catch (_) {}
+          this.characterDrawer = this[c.drawFn];
+          close();
+          // Redraw game-over overlay if it was underneath (reflect new sprite
+          // next run) - currently no live preview on that screen, so just
+          // leave it. Player sprite will update on next draw tick.
+        });
+      });
+
+      // Close button
+      const closeBtnY = this.H - S * 0.07;
+      const closeBG = this.add.graphics();
+      closeBG.fillStyle(0x444b66, 1);
+      closeBG.fillRoundedRect(this.W / 2 - S * 0.15, closeBtnY - S * 0.035, S * 0.30, S * 0.07, 8);
+      closeBG.lineStyle(2, 0x9cd9ff, 1);
+      closeBG.strokeRoundedRect(this.W / 2 - S * 0.15, closeBtnY - S * 0.035, S * 0.30, S * 0.07, 8);
+      g.add(closeBG);
+      const closeLabel = this.add.text(this.W / 2, closeBtnY, "CLOSE", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.03) + "px", fontStyle: "bold",
+        color: "#fff",
+      }).setOrigin(0.5);
+      g.add(closeLabel);
+      const closeHit = this.add.zone(this.W / 2, closeBtnY, S * 0.30, S * 0.07)
+        .setOrigin(0.5).setInteractive({ useHandCursor: true });
+      g.add(closeHit);
+      closeHit.on("pointerdown", close);
+
+      this.characterSelectOverlay = g;
+    }
+
+    drawCharacterPreview(id, x, y, scale) {
+      const entry = CHARACTERS.find(c => c.id === id) || CHARACTERS[0];
+      const fn = this[entry.drawFn] || this.drawCharClimber;
+      const g = this.add.graphics();
+      g.clear();
+      fn.call(this, g, {
+        w: CFG.CHAR_W, h: CFG.CHAR_H, lean: 0, airborne: false,
+        speedFrac: 0, runPhase: 0, now: this.time.now, facing: 1,
+      });
+      g.x = x; g.y = y;
+      g.scaleX = g.scaleY = scale;
+      return g;
     }
 
     restartRun() {
@@ -2086,10 +2523,11 @@
       // Clear any pending timers queued from FX (HURRY UP cleanup etc).
       if (this.time && this.time.removeAllEvents) this.time.removeAllEvents();
 
-      if (this.gameOverOverlay) { this.gameOverOverlay.destroy(); this.gameOverOverlay = null; }
-      if (this._hurryLabel)     { this._hurryLabel.destroy();     this._hurryLabel = null; }
-      if (this._edgeFlash)      { this._edgeFlash.destroy();      this._edgeFlash = null; }
-      if (this._shareToast)     { this._shareToast.destroy();     this._shareToast = null; }
+      if (this.gameOverOverlay)       { this.gameOverOverlay.destroy();       this.gameOverOverlay = null; }
+      if (this.characterSelectOverlay){ this.characterSelectOverlay.destroy(); this.characterSelectOverlay = null; }
+      if (this._hurryLabel)           { this._hurryLabel.destroy();           this._hurryLabel = null; }
+      if (this._edgeFlash)            { this._edgeFlash.destroy();            this._edgeFlash = null; }
+      if (this._shareToast)           { this._shareToast.destroy();           this._shareToast = null; }
 
       this.floorsGfx.clear();
       this.playerGfx.clear();
