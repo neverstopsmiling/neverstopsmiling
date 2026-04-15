@@ -186,7 +186,7 @@
       this.drawBackground();
 
       this.setupInput();
-      this.resetPlayer();
+      this.resetRun();
 
       this.scale.on("resize", this.onResize, this);
 
@@ -198,8 +198,13 @@
     onResize(gameSize) {
       this.W = gameSize.width;
       this.H = gameSize.height;
-      this.groundY = this.H - 80;
       this.drawBackground();
+      // Don't rebuild floors on resize; widths were set at spawn time.
+      // Floor-0 (ground) is redrawn to cover full screen width.
+      if (this.floors && this.floors[0]) {
+        this.floors[0].x = 0;
+        this.floors[0].w = this.W;
+      }
     }
 
     // Simple placeholder gradient backdrop; themed version comes in Phase 6.
@@ -246,22 +251,92 @@
     }
 
     // ---------------------------------------------------------------
-    // Player
+    // Run lifecycle
     // ---------------------------------------------------------------
-    resetPlayer() {
-      this.groundY = this.H - 80;
+    resetRun() {
+      // Floor 0 top surface lives here in world coords.
+      this.FLOOR0_Y = this.H - 80;
+
       this.player = {
         x: this.W / 2,
-        y: this.groundY,      // feet y (world coords)
+        y: this.FLOOR0_Y,       // feet y (world coords)
+        prevY: this.FLOOR0_Y,
         vx: 0,
         vy: 0,
         w: CFG.CHAR_W,
         h: CFG.CHAR_H,
         onGround: true,
-        facing: 1,            // +1 right, -1 left
-        runPhase: 0,          // leg animation phase
-        crouchT: 0,           // 0..1 brief crouch after landing
+        facing: 1,
+        runPhase: 0,
+        crouchT: 0,
+        // Wall bounce bookkeeping
+        wallHitTime: 0,          // performance.now() of last wall hit, 0 if none pending
+        wallHitSide: 0,          // -1 = hit left wall, +1 = hit right wall
+        wallBounceArmed: false,  // true between hit and window expiry
+        // Floor tracking
+        currentFloor: 0,
+        highestFloor: 0,
+        jumpStartFloor: 0,
       };
+
+      // Floors are authored in world-space; spawn them once.
+      this.floors = [];
+      this.maxSpawnedFloor = -1;
+      this.spawnFloor(0); // ground
+      for (let i = 1; i <= 60; i++) this.spawnFloor(i);
+
+      // Camera starts at 0 (top of screen = world y 0). Upward-only follow.
+      this.cameras.main.setScroll(0, 0);
+      this.cameraY = 0;
+    }
+
+    // ---------------------------------------------------------------
+    // Floor generation
+    // ---------------------------------------------------------------
+    floorY(n) { return this.FLOOR0_Y - n * CFG.FLOOR_HEIGHT; }
+
+    // Width fraction curve based on spec: 70% base at floor 0,
+    // drifting to ~40% at floor 200, ~25% at floor 500+.
+    floorWidthFrac(n) {
+      if (n <= 0) return 1.0;
+      if (n < 200) return 0.70 - 0.30 * (n / 200);
+      if (n < 500) return 0.40 - 0.15 * ((n - 200) / 300);
+      return Math.max(0.15, 0.25 - (n - 500) * 0.0002);
+    }
+
+    spawnFloor(n) {
+      if (n <= this.maxSpawnedFloor) return;
+      // Fill any gaps (shouldn't happen in practice)
+      for (let k = this.maxSpawnedFloor + 1; k <= n; k++) this._createFloor(k);
+    }
+
+    _createFloor(n) {
+      const y = this.floorY(n);
+      let f;
+      if (n === 0) {
+        // Ground - full width
+        f = { n: 0, x: 0, y, w: this.W, h: CFG.FLOOR_THICKNESS, ground: true };
+      } else {
+        const frac = this.floorWidthFrac(n);
+        const jitter = 1 + (Math.random() * 2 - 1) * CFG.FLOOR_WIDTH_JITTER;
+        const availW = this.W - CFG.WALL_THICKNESS * 2;
+        let w = Math.max(CFG.FLOOR_MIN_WIDTH_PX, availW * frac * jitter);
+        w = Math.min(w, availW - 10);
+        const slack = availW - w;
+        const x = CFG.WALL_THICKNESS + Math.random() * slack;
+        f = { n, x, y, w, h: CFG.FLOOR_THICKNESS, ground: false };
+      }
+      this.floors.push(f);
+      this.maxSpawnedFloor = n;
+    }
+
+    // Rough theme resolver - full palette lands in Phase 6.
+    floorTheme(n) {
+      if (n < 100) return { top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c };
+      if (n < 200) return { top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x333333 };
+      if (n < 300) return { top: 0xff9a6a, side: 0xcc3a0a, wall: 0x701a00 };
+      if (n < 400) return { top: 0x9aeaa0, side: 0x2a7a38, wall: 0x155020 };
+      return { top: 0xd0b8ff, side: 0x5e3fa0, wall: 0x2a1a55 };
     }
 
     // Pixel-art arctic climber drawn procedurally. Redraws each frame.
@@ -407,63 +482,211 @@
         if (Math.abs(p.vx) <= dec) p.vx = 0;
         else p.vx -= Math.sign(p.vx) * dec;
       }
-      // In air with no input, horizontal velocity is preserved (no drag).
 
       // ---- Jump ----
       if (this.jumpPressed && p.onGround) {
         const speedFrac = Math.abs(p.vx) / CFG.MAX_H_SPEED;
         p.vy = -(CFG.BASE_JUMP + speedFrac * CFG.BONUS_JUMP);
         p.onGround = false;
+        p.jumpStartFloor = p.currentFloor;
       }
 
       // ---- Gravity ----
       p.vy += CFG.GRAVITY * dt;
 
       // ---- Integrate ----
+      p.prevY = p.y;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
-      // ---- Temporary ground collision (Phase 3 replaces this) ----
-      if (p.y >= this.groundY) {
-        if (!p.onGround && p.vy > 40) p.crouchT = 1;
-        p.y = this.groundY;
-        p.vy = 0;
-        p.onGround = true;
-      }
+      // ---- Floor collision (one-way, only when falling) ----
+      this.resolveFloorCollision();
 
-      // ---- Temporary side walls so we don't run off screen ----
-      const halfW = p.w / 2;
-      const leftBound  = CFG.WALL_THICKNESS + halfW;
-      const rightBound = this.W - CFG.WALL_THICKNESS - halfW;
-      if (p.x < leftBound)  { p.x = leftBound;  p.vx = Math.abs(p.vx) * -1 * 0; }
-      if (p.x > rightBound) { p.x = rightBound; p.vx = Math.abs(p.vx) *  0; }
+      // ---- Wall collision & bounce ----
+      this.resolveWallCollision();
 
       // ---- Animation state ----
       if (p.onGround && Math.abs(p.vx) > 20) {
         p.runPhase += (Math.abs(p.vx) / CFG.MAX_H_SPEED) * 18 * dt;
-      } else {
+      } else if (!p.onGround) {
         p.runPhase = 0;
       }
       if (p.crouchT > 0) p.crouchT = Math.max(0, p.crouchT - dt / 0.15);
     }
 
+    resolveFloorCollision() {
+      const p = this.player;
+      if (p.vy < 0) return; // rising - pass through (one-way)
+
+      const halfW = p.w / 2;
+      const prevBottom = p.prevY;
+      const curBottom = p.y;
+
+      // Only consider floors whose top is between prevBottom and curBottom.
+      for (let i = 0; i < this.floors.length; i++) {
+        const f = this.floors[i];
+        const top = f.y;
+        if (prevBottom <= top && curBottom >= top) {
+          // Horizontal overlap?
+          if (p.x + halfW > f.x && p.x - halfW < f.x + f.w) {
+            // Land
+            p.y = top;
+            p.vy = 0;
+            const wasAir = !p.onGround;
+            p.onGround = true;
+            if (wasAir) this.onLand(f);
+            break;
+          }
+        }
+      }
+    }
+
+    resolveWallCollision() {
+      const p = this.player;
+      const halfW = p.w / 2;
+      const leftBound  = CFG.WALL_THICKNESS + halfW;
+      const rightBound = this.W - CFG.WALL_THICKNESS - halfW;
+      const now = performance.now();
+
+      if (p.x < leftBound && p.vx <= 0) {
+        p.x = leftBound;
+        // Flip horizontal velocity on impact
+        p.vx = Math.abs(p.vx);
+        p.wallHitTime = now;
+        p.wallHitSide = -1;
+        p.wallBounceArmed = true;
+      } else if (p.x > rightBound && p.vx >= 0) {
+        p.x = rightBound;
+        p.vx = -Math.abs(p.vx);
+        p.wallHitTime = now;
+        p.wallHitSide = 1;
+        p.wallBounceArmed = true;
+      }
+
+      // Resolve the bounce window
+      if (p.wallBounceArmed) {
+        const elapsed = now - p.wallHitTime;
+        // Opposite-direction input check: hit right wall -> need LEFT input.
+        const inputAwayFromWall =
+          (p.wallHitSide === 1  && this.axisX < -0.1) ||
+          (p.wallHitSide === -1 && this.axisX >  0.1);
+
+        if (inputAwayFromWall && elapsed <= CFG.WALL_BOUNCE_WINDOW_MS) {
+          // Successful wall bounce: full momentum preserved, vy untouched.
+          const dir = -p.wallHitSide;
+          p.vx = dir * CFG.MAX_H_SPEED;
+          // vy left alone - the upward climb continues.
+          p.wallBounceArmed = false;
+          p.wallHitTime = 0;
+          this.onWallBounce();
+        } else if (elapsed > CFG.WALL_BOUNCE_WINDOW_MS) {
+          // Window expired without reversal - lose all horizontal momentum.
+          p.vx = 0;
+          p.wallBounceArmed = false;
+          p.wallHitTime = 0;
+        }
+      }
+    }
+
     // ---------------------------------------------------------------
-    // Phase-2 placeholder ground renderer (replaced in Phase 3)
+    // Landing / wall-bounce hooks
     // ---------------------------------------------------------------
-    drawPlaceholderFloor() {
+    onLand(floor) {
+      const p = this.player;
+      if (p.vy === 0 && p.prevY - p.y > 40) p.crouchT = 1;
+      if (!p.crouchT) p.crouchT = 1;
+      p.currentFloor = floor.n;
+      if (floor.n > p.highestFloor) {
+        p.highestFloor = floor.n;
+        // Proactively ensure the tower is built well above the player.
+        const wantUpTo = floor.n + 80;
+        if (wantUpTo > this.maxSpawnedFloor) {
+          for (let k = this.maxSpawnedFloor + 1; k <= wantUpTo; k++) this._createFloor(k);
+        }
+      }
+    }
+
+    onWallBounce() {
+      // Hook for Phase 7 audio / particle feedback.
+    }
+
+    // ---------------------------------------------------------------
+    // Camera - upward-only follow (auto-scroll lands in Phase 4)
+    // ---------------------------------------------------------------
+    updateCamera(dt) {
+      const p = this.player;
+      // Desired camera top-left world y so player sits ~60% down the screen.
+      const desired = p.y - this.H * 0.62;
+      if (desired < this.cameraY) {
+        // Smooth upward chase
+        this.cameraY = Phaser.Math.Linear(this.cameraY, desired, 0.18);
+      }
+      this.cameras.main.setScroll(0, this.cameraY);
+    }
+
+    // ---------------------------------------------------------------
+    // Rendering
+    // ---------------------------------------------------------------
+    drawFloors() {
       const g = this.floorsGfx;
       g.clear();
-      g.fillStyle(0x4aa8e0, 1);
-      g.fillRect(0, this.groundY, this.W, 4);
-      g.fillStyle(0x9cd9ff, 1);
-      g.fillRect(0, this.groundY, this.W, 2);
+      const viewTop = this.cameraY - 20;
+      const viewBottom = this.cameraY + this.H + 20;
+      for (let i = 0; i < this.floors.length; i++) {
+        const f = this.floors[i];
+        if (f.y < viewTop || f.y > viewBottom) continue;
+        const theme = this.floorTheme(f.n);
+        // Shadow strip under the floor
+        g.fillStyle(0x000000, 0.25);
+        g.fillRect(f.x + 2, f.y + f.h, f.w, 3);
+        // Side color (thickness)
+        g.fillStyle(theme.side, 1);
+        g.fillRect(f.x, f.y, f.w, f.h);
+        // Top highlight
+        g.fillStyle(theme.top, 1);
+        g.fillRect(f.x, f.y, f.w, 3);
+        // Glint ticks
+        g.fillStyle(0xffffff, 0.55);
+        for (let t = 0; t < f.w; t += 24) {
+          g.fillRect(f.x + t + 6, f.y + 1, 4, 1);
+        }
+      }
+    }
+
+    drawWalls() {
+      const g = this.wallsGfx;
+      g.clear();
+      const theme = this.floorTheme(this.player.highestFloor);
+      const top = this.cameraY - 20;
+      const h = this.H + 40;
+
+      // Left wall
+      g.fillStyle(theme.wall, 1);
+      g.fillRect(0, top, CFG.WALL_THICKNESS, h);
+      // Right wall
+      g.fillRect(this.W - CFG.WALL_THICKNESS, top, CFG.WALL_THICKNESS, h);
+
+      // Inner edge highlight
+      g.fillStyle(0xffffff, 0.08);
+      g.fillRect(CFG.WALL_THICKNESS - 2, top, 2, h);
+      g.fillRect(this.W - CFG.WALL_THICKNESS, top, 2, h);
+
+      // Brick hatching
+      g.fillStyle(0x000000, 0.22);
+      const startRow = Math.floor(top / 16) * 16;
+      for (let y = startRow; y < top + h; y += 16) {
+        g.fillRect(0, y, CFG.WALL_THICKNESS, 1);
+        g.fillRect(this.W - CFG.WALL_THICKNESS, y, CFG.WALL_THICKNESS, 1);
+      }
     }
 
     update(_time, delta) {
-      const dt = Math.min(delta / 1000, 1 / 30); // clamp to avoid huge steps
+      const dt = Math.min(delta / 1000, 1 / 30);
       this.readInput();
       this.updatePhysics(dt);
-      this.drawPlaceholderFloor();
+      this.updateCamera(dt);
+      this.drawWalls();
+      this.drawFloors();
       this.drawPlayer();
     }
   }
