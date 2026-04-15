@@ -32,19 +32,21 @@
     #tilt-enable {
       position: fixed;
       left: 50%;
-      bottom: 24px;
+      top: 18px;
       transform: translateX(-50%);
-      padding: 12px 22px;
+      padding: 10px 16px;
       background: rgba(20, 90, 180, 0.92);
       color: #fff;
       border: 2px solid #9cd9ff;
       border-radius: 10px;
-      font: 700 14px/1 "Courier New", monospace;
+      font: 700 12px/1 "Courier New", monospace;
       letter-spacing: 1px;
       text-transform: uppercase;
       display: none;
       z-index: 20;
       box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+      /* Don't intercept taps outside of the button itself */
+      touch-action: manipulation;
     }
     #boot-msg {
       position: fixed;
@@ -140,10 +142,14 @@
   };
 
   const LS_KEYS = {
-    bestScore:   "frostspire.bestScore",
-    bestFloor:   "frostspire.bestFloor",
-    longestCombo:"frostspire.longestCombo",
-    ghost:       "frostspire.ghost",
+    bestScore:    "frostspire.bestScore",
+    bestFloor:    "frostspire.bestFloor",
+    longestCombo: "frostspire.longestCombo",
+    ghost:        "frostspire.ghost",
+    tiltGranted:  "frostspire.tiltGranted",   // "1" after user granted motion permission
+    tiltInvert:   "frostspire.tiltInvert",    // "1" = invert X sign
+    bestFlips:    "frostspire.bestFlips",
+    character:    "frostspire.character",
   };
 
   function lsGetInt(key, fallback) {
@@ -408,58 +414,134 @@
       this.input.keyboard.addCapture("LEFT,RIGHT,UP,DOWN,SPACE");
 
       // Axis buffer gets populated from keyboard / tilt / touch.
-      this.axisX = 0;        // -1, 0, +1 (or analog in [-1..1] from tilt)
+      this.axisX = 0;
       this.jumpPressed = false;
-      this.jumpQueued  = false;
 
-      // ---- Tilt (DeviceOrientation) ----
-      this.tilt = { enabled: false, gamma: 0 };
+      // Jump buffering + coyote time (the "quick tap" feel of Icy Tower).
+      this.jumpBufferUntil = 0;      // time.now deadline after which a buffered jump expires
+      this.lastGroundTime  = 0;      // time.now when player was last grounded
+
+      // ---- Tilt (DeviceOrientation) with orientation correction ----
+      this.tilt = {
+        enabled: false,
+        x: 0,                        // screen-relative axis already in [-1..1]
+        invert: lsGetInt(LS_KEYS.tiltInvert, 0) === 1,
+      };
+      this.tiltBtn = document.getElementById("tilt-enable");
       this.touchLeft = false;
       this.touchRight = false;
 
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       const needsPermission =
         typeof DeviceOrientationEvent !== "undefined" &&
         typeof DeviceOrientationEvent.requestPermission === "function";
 
-      // Enable tilt handler directly on non-iOS; iOS needs a button tap.
+      // Convert beta/gamma into a screen-relative left/right axis,
+      // applying the current screen orientation so tilt stays consistent
+      // when the device is rotated.
+      const getScreenAngle = () => {
+        try {
+          if (screen.orientation && typeof screen.orientation.angle === "number") {
+            return screen.orientation.angle;
+          }
+        } catch (_) {}
+        if (typeof window.orientation === "number") return window.orientation;
+        return 0;
+      };
+
       const installHandler = () => {
+        if (this.tilt._installed) return;
+        this.tilt._installed = true;
         window.addEventListener("deviceorientation", (ev) => {
-          // gamma: left/right tilt in degrees (-90..90). Positive = right.
-          if (ev.gamma == null) return;
+          if (ev.gamma == null || ev.beta == null) return;
+          const g = ev.gamma, b = ev.beta;
+          const angle = getScreenAngle();
+          // In each screen orientation, a different sensor axis maps to
+          // "tilt the screen left/right". Signs chosen so physically
+          // tilting the phone to the player's right always moves right.
+          let x;
+          switch (angle) {
+            case 90:   x =  b; break;    // landscape right
+            case -90:
+            case 270:  x = -b; break;    // landscape left
+            case 180:  x = -g; break;    // upside-down portrait
+            default:   x =  g; break;    // normal portrait (0)
+          }
+          if (this.tilt.invert) x = -x;
+          // Deadzone + normalise over +/- 25 degrees.
+          const mag = Math.max(0, Math.abs(x) - 3);
+          const sign = x >= 0 ? 1 : -1;
+          this.tilt.x = Phaser.Math.Clamp(sign * (mag / 22), -1, 1);
           this.tilt.enabled = true;
-          this.tilt.gamma = ev.gamma;
+          // If the tilt-enable button is still visible for any reason,
+          // hide it now that events are flowing.
+          if (this.tiltBtn && this.tiltBtn.style.display !== "none") {
+            this.tiltBtn.style.display = "none";
+          }
         }, true);
       };
 
-      if (needsPermission) {
-        const btn = document.getElementById("tilt-enable");
-        if (btn) {
-          btn.style.display = "block";
-          btn.addEventListener("click", async () => {
-            try {
-              const res = await DeviceOrientationEvent.requestPermission();
-              if (res === "granted") {
-                installHandler();
-                btn.style.display = "none";
-              }
-            } catch (_) { /* ignore */ }
-          }, { once: true });
+      // Try a silent install path first. If permission was already granted
+      // in a previous session we can re-grant without ever showing a prompt
+      // or the DOM button; the call still needs a user gesture though, so
+      // attach it to the first pointerdown/keydown.
+      const alreadyGranted = lsGetInt(LS_KEYS.tiltGranted, 0) === 1;
+
+      const silentArm = async () => {
+        if (!needsPermission) { installHandler(); return; }
+        try {
+          const res = await DeviceOrientationEvent.requestPermission();
+          if (res === "granted") {
+            installHandler();
+            lsSet(LS_KEYS.tiltGranted, "1");
+            if (this.tiltBtn) this.tiltBtn.style.display = "none";
+          } else {
+            // User declined this time - surface the visible button so they
+            // can try again if they change their mind.
+            if (this.tiltBtn) this.tiltBtn.style.display = "block";
+          }
+        } catch (_) {
+          // Call failed (e.g. no gesture) - fall back to visible button.
+          if (this.tiltBtn && !alreadyGranted) this.tiltBtn.style.display = "block";
         }
+      };
+
+      if (needsPermission) {
+        // Wire the visible button regardless; it's harmless when hidden.
+        if (this.tiltBtn) {
+          this.tiltBtn.onclick = async () => {
+            await silentArm();
+          };
+          if (!alreadyGranted) this.tiltBtn.style.display = "block";
+        }
+        // First pointer/key gesture in the scene also tries to arm tilt.
+        const armOnce = () => {
+          this.input.off("pointerdown", armOnce);
+          this.input.keyboard.off("keydown", armOnce);
+          silentArm();
+        };
+        this.input.once("pointerdown", armOnce);
+        this.input.keyboard.once("keydown", armOnce);
       } else if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
-        // Non-iOS mobile: just install
+        installHandler();
+      } else {
+        // Desktop: still try to install so a laptop with an accelerometer works.
         installHandler();
       }
 
-      // ---- Touch fallback (always wired; harmless on desktop) ----
-      this.input.on("pointerdown", (pointer) => {
-        // Tap anywhere = jump (edge-triggered)
-        this.jumpQueued = true;
-        // Also remember which side was touched for fallback steering
+      // ---- Touch fallback + jump-on-tap ----
+      // We tag the "game input" handler so it can skip when gameOver overlays
+      // are up (so taps on RESTART/SHARE don't also queue a jump).
+      const gameTap = (pointer) => {
+        if (this.gameOver) return;
+        // Buffer a jump for 150 ms - consumed instantly on landing.
+        this.jumpBufferUntil = this.time.now + 150;
+        // Remember which side was touched for the touch-steer fallback.
         if (pointer.x < this.W / 2) this.touchLeft = true;
         else this.touchRight = true;
-      });
+      };
+      this.input.on("pointerdown", gameTap);
       this.input.on("pointermove", (pointer) => {
+        if (this.gameOver) return;
         if (pointer.isDown) {
           if (pointer.x < this.W / 2) { this.touchLeft = true;  this.touchRight = false; }
           else                        { this.touchRight = true; this.touchLeft = false;  }
@@ -475,20 +557,13 @@
       const k = this.keys;
       let ax = 0;
 
-      // Keyboard
       if (k.left.isDown  || k.a.isDown) ax -= 1;
       if (k.right.isDown || k.d.isDown) ax += 1;
 
-      // Tilt (overrides if active and no keyboard input)
       if (ax === 0 && this.tilt.enabled) {
-        // Dead zone + linear ramp out to +/- 25 degrees
-        const g = this.tilt.gamma;
-        if (Math.abs(g) > 3) {
-          ax = Phaser.Math.Clamp(g / 25, -1, 1);
-        }
+        ax = this.tilt.x;
       }
 
-      // Touch fallback if no tilt + no keys
       if (ax === 0 && !this.tilt.enabled) {
         if (this.touchLeft)  ax -= 1;
         if (this.touchRight) ax += 1;
@@ -496,13 +571,22 @@
 
       this.axisX = ax;
 
-      // Edge-triggered jump from keyboard + queued from touch
-      this.jumpPressed =
+      // Keyboard jump buffers into the same jumpBufferUntil window as taps.
+      if (
         Phaser.Input.Keyboard.JustDown(k.up) ||
         Phaser.Input.Keyboard.JustDown(k.w)  ||
-        Phaser.Input.Keyboard.JustDown(k.space) ||
-        this.jumpQueued;
-      this.jumpQueued = false;
+        Phaser.Input.Keyboard.JustDown(k.space)
+      ) {
+        this.jumpBufferUntil = this.time.now + 150;
+      }
+
+      // Fire a jump if: we have a live buffered press AND we can jump
+      // (on ground, or inside the 80 ms coyote-time window).
+      const now = this.time.now;
+      const buffered  = now <= this.jumpBufferUntil;
+      const coyoteOk  = !this.player.onGround && (now - this.lastGroundTime) <= 80;
+      this.jumpPressed = buffered && (this.player.onGround || coyoteOk);
+      if (this.jumpPressed) this.jumpBufferUntil = 0;
     }
 
     // ---------------------------------------------------------------
@@ -855,6 +939,9 @@
 
       // ---- Wall collision & bounce ----
       this.resolveWallCollision();
+
+      // Track the last moment the player was grounded, used by coyote time.
+      if (p.onGround) this.lastGroundTime = this.time.now;
 
       // ---- Animation state ----
       if (p.onGround && Math.abs(p.vx) > 20) {
@@ -1606,6 +1693,18 @@
       y += btnH + gap;
       addBtn(y, "SHARE",   0x444b66, 0xffdf3c, () => this.shareScore());
 
+      // Tilt-invert toggle on mobile only (doesn't show up for desktops).
+      if (this.tilt && this.tilt.enabled) {
+        y += btnH + gap * 0.6;
+        const tiltLabel = "FLIP TILT: " + (this.tilt.invert ? "ON" : "OFF");
+        addBtn(y, tiltLabel, 0x223344, 0x9cd9ff, () => {
+          this.tilt.invert = !this.tilt.invert;
+          lsSet(LS_KEYS.tiltInvert, this.tilt.invert ? "1" : "0");
+          // Redraw overlay to refresh the label
+          this.showGameOverScreen();
+        });
+      }
+
       this.input.keyboard.once("keydown-SPACE", () => this.gameOver && this.restartRun());
       this.input.keyboard.once("keydown-ENTER", () => this.gameOver && this.restartRun());
 
@@ -1613,16 +1712,38 @@
     }
 
     restartRun() {
-      // Tear down all transient graphics that belong to the previous run.
+      if (this._restarting) return;    // guard against double-taps
+      this._restarting = true;
+
+      // Kill every tween belonging to overlay children BEFORE destroy so they
+      // don't fire callbacks on already-destroyed objects.
+      this.tweens.killAll();
+
+      // Clear any pending timers queued from FX (HURRY UP cleanup etc).
+      if (this.time && this.time.removeAllEvents) this.time.removeAllEvents();
+
       if (this.gameOverOverlay) { this.gameOverOverlay.destroy(); this.gameOverOverlay = null; }
       if (this._hurryLabel)     { this._hurryLabel.destroy();     this._hurryLabel = null; }
       if (this._edgeFlash)      { this._edgeFlash.destroy();      this._edgeFlash = null; }
+      if (this._shareToast)     { this._shareToast.destroy();     this._shareToast = null; }
+
       this.floorsGfx.clear();
       this.playerGfx.clear();
       this.wallsGfx.clear();
       this.particlesGfx.clear();
       this.ghostGfx.clear();
+
+      // Release any held touch buttons from the previous run.
+      this.touchLeft = this.touchRight = false;
+      this.jumpBufferUntil = 0;
+
+      // Ensure the tilt DOM button isn't covering anything after restart.
+      if (this.tiltBtn && this.tilt && this.tilt.enabled) {
+        this.tiltBtn.style.display = "none";
+      }
+
       this.resetRun();
+      this._restarting = false;
     }
 
     // ---------------------------------------------------------------
