@@ -496,9 +496,88 @@
         g.fillRect(0, (this.H * i) / steps, this.W, this.H / steps + 1);
       }
 
+      // Far parallax silhouette
+      this._farSilhouette(g, theme);
       // Per-theme decorative accent layer (snow, icicles, torches, etc.)
       const fn = theme.accentFn && this[theme.accentFn];
       if (fn) fn.call(this, g, theme);
+    }
+
+    _farSilhouette(g, theme) {
+      const n = this.player ? this.player.highestFloor : 0;
+      const key = LEVELS[levelIndexFor(n)].themeKey;
+      const cam = (this.cameraY || 0) * 0.15;
+      const fl = this.H - Math.min(this.H * 0.28, 160);
+      const sc = lerpColor(theme.bg2, theme.wall, 0.5);
+      g.fillStyle(sc, 0.85);
+      switch (key) {
+        case "snow":
+          for (let x = -(cam%40)-40; x < this.W+40; x += 40) {
+            const s = Math.floor((x+cam)/40);
+            const h = 40+(Math.abs(Math.sin(s*2.3))*60)|0;
+            g.fillTriangle(x, fl, x+20, fl-h, x+40, fl);
+          }
+          g.fillStyle(0xffffff, 0.80);
+          for (let x = -(cam%40)-40; x < this.W+40; x += 40) {
+            const s = Math.floor((x+cam)/40);
+            const h = 40+(Math.abs(Math.sin(s*2.3))*60)|0;
+            g.fillTriangle(x+14, fl-h+12, x+26, fl-h+12, x+20, fl-h);
+          }
+          break;
+        case "cave":
+          for (let x = -(cam%28)-28; x < this.W+28; x += 28) {
+            const s = Math.floor((x+cam)/28);
+            g.fillTriangle(x, this.H, x+14, this.H-(20+(Math.abs(Math.sin(s*3.1))*60)|0), x+28, this.H);
+          }
+          break;
+        case "stone":
+          g.fillRect(0, fl, this.W, this.H-fl);
+          for (let x = -((cam*0.6)%22)-22; x < this.W+22; x += 22) {
+            const s = Math.floor((x+cam)/22);
+            g.fillRect(x, fl-24-(s%2===0?14:0), 20, 24+(s%2===0?14:0));
+          }
+          break;
+        case "lava":
+          for (let x = -((cam*0.5)%120)-120; x < this.W+120; x += 120) {
+            const s = Math.floor((x+cam)/120);
+            const h = 80+(Math.abs(Math.sin(s*2.7))*60)|0;
+            const px = x+60;
+            g.fillStyle(0x200500, 0.85);
+            g.fillTriangle(px-60, fl, px, fl-h, px+60, fl);
+            g.fillStyle(0xff5010, 0.55);
+            g.fillTriangle(px-8, fl-h+4, px, fl-h, px+8, fl-h+4);
+            g.fillStyle(sc, 0.85);
+          }
+          break;
+        case "forest":
+          for (let x = -((cam*0.5)%28)-28; x < this.W+28; x += 28) {
+            const s = Math.floor((x+cam)/28);
+            const h = 50+(Math.abs(Math.sin(s*2.1))*50)|0;
+            g.fillStyle(0x0a2210, 0.80);
+            g.fillTriangle(x+2, fl, x+14, fl-h, x+26, fl);
+            g.fillStyle(sc, 0.85);
+          }
+          break;
+        case "storm":
+          g.fillStyle(0x40308a, 0.55);
+          for (let x = -((cam*0.5)%180)-180; x < this.W+180; x += 180) {
+            const s = Math.floor((x+cam)/180);
+            const h = 30+(Math.abs(Math.sin(s*1.9))*20)|0;
+            g.fillRect(x+10, fl-20-h, 160, 18+h);
+          }
+          break;
+        case "space":
+          for (let x = -((cam*0.4)%200)-200; x < this.W+200; x += 200) {
+            const s = Math.floor((x+cam)/200);
+            const r = 18+(Math.abs(Math.sin(s*1.4))*26)|0;
+            const cx = x+100, cy = 120+(Math.abs(Math.cos(s*2.1))*(this.H-260))|0;
+            g.fillStyle(lerpColor(theme.bg2, theme.accent, 0.35), 0.75);
+            g.fillCircle(cx, cy, r);
+            g.fillStyle(0x000000, 0.35);
+            g.fillCircle(cx+r*0.35, cy, r*0.9);
+          }
+          break;
+      }
     }
 
     // -------------- Per-theme accent renderers --------------
@@ -2775,6 +2854,57 @@
           g.fillStyle(theme.wall, 0.55);
           g.fillRect(f.x + 4, f.y + 5, 3, 3);
         }
+        // Per-theme detail (additive overlay)
+        this._floorDetail(g, f, theme);
+      }
+    }
+
+    _floorDetail(g, f, theme) {
+      const key = LEVELS[levelIndexFor(f.n)].themeKey;
+      switch (key) {
+        case "snow":
+          g.fillStyle(0xffffff, 1);
+          for (let x = f.x + 4; x < f.x + f.w - 4; x += 14) g.fillRect(x + (((x*13)>>>0)%3), f.y+1, 2, 2);
+          g.fillStyle(0xd3f0ff, 0.85);
+          for (let x = f.x + 6; x < f.x + f.w - 6; x += 18) g.fillRect(x, f.y+f.h, 2, 3+(((x*29)>>>0)%4));
+          break;
+        case "cave":
+          g.fillStyle(0xb8f0ff, 0.80);
+          for (let x = f.x+8; x < f.x+f.w-8; x += 22) { g.fillRect(x, f.y+4, 6, 1); g.fillRect(x+2, f.y+5, 2, 2); }
+          break;
+        case "stone":
+          g.fillStyle(0x3a3a3a, 0.5);
+          g.fillRect(f.x, f.y+Math.floor(f.h/2), f.w, 1);
+          for (let x = f.x+18; x < f.x+f.w; x += 18) g.fillRect(x, f.y, 1, f.h);
+          break;
+        case "iron":
+          g.fillStyle(0x000000, 0.35);
+          for (let x = f.x+28; x < f.x+f.w; x += 28) g.fillRect(x-1, f.y, 1, f.h);
+          g.fillStyle(theme.accent, 0.85);
+          for (let x = f.x+4; x < f.x+f.w-2; x += 28) { g.fillRect(x, f.y+2, 2, 2); g.fillRect(x, f.y+f.h-3, 2, 2); }
+          break;
+        case "lava":
+          g.fillStyle(0xffe070, 0.90); g.fillRect(f.x, f.y, f.w, 1);
+          g.fillStyle(0xff7020, 0.70); g.fillRect(f.x, f.y+1, f.w, 1);
+          g.fillStyle(0xff6020, 0.80);
+          for (let x = f.x+10; x < f.x+f.w-10; x += 40) g.fillRect(x, f.y+f.h, 2, 4+(((x*17)>>>0)%5));
+          break;
+        case "forest":
+          g.fillStyle(0x1a3a1a, 0.45);
+          for (let x = f.x+24; x < f.x+f.w; x += 24) g.fillRect(x, f.y, 1, f.h);
+          g.fillStyle(theme.top, 0.85);
+          for (let x = f.x+8; x < f.x+f.w-5; x += 20) g.fillRect(x, f.y-2, 3, 2);
+          break;
+        case "storm":
+          g.fillStyle(theme.top, 0.65);
+          for (let x = f.x+3; x < f.x+f.w-3; x += 12) g.fillRect(x, f.y-2, 6, 2);
+          if (f.n%2===0) { g.fillStyle(0xfff4a0, 0.50); g.fillRect(f.x, f.y, f.w, 1); }
+          break;
+        case "space":
+          g.fillStyle(0x000000, 0.30);
+          for (let x = f.x+12; x < f.x+f.w; x += 12) g.fillRect(x, f.y, 1, f.h);
+          g.fillStyle(theme.accent, 0.55); g.fillRect(f.x, f.y+f.h-1, f.w, 1);
+          break;
       }
     }
 
@@ -2807,6 +2937,59 @@
       g.fillStyle(0x000000, 0.18);
       g.fillRect(CFG.WALL_THICKNESS / 2, top, 1, h);
       g.fillRect(this.W - CFG.WALL_THICKNESS / 2, top, 1, h);
+      // Per-theme wall overlay
+      this._wallDetail(g, top, h, theme);
+    }
+
+    _wallDetail(g, top, h, theme) {
+      const n = this.player ? this.player.highestFloor : 0;
+      const key = LEVELS[levelIndexFor(n)].themeKey;
+      const W = this.W, t = CFG.WALL_THICKNESS;
+      switch (key) {
+        case "snow":
+          g.fillStyle(theme.accent, 0.30);
+          for (let y = Math.floor(top/22)*22; y < top+h; y += 22) {
+            g.fillTriangle(2, y, t-2, y+11, 2, y+22);
+            g.fillTriangle(W-2, y, W-t+2, y+11, W-2, y+22);
+          }
+          break;
+        case "cave":
+          g.fillStyle(theme.top, 0.65);
+          for (let y = Math.floor(top/24)*24; y < top+h; y += 24) {
+            g.fillTriangle(2, y, t-4, y, t/2, y+8);
+            g.fillTriangle(W-2, y, W-t+4, y, W-t/2, y+8);
+          }
+          break;
+        case "stone":
+          g.fillStyle(0x000000, 0.40);
+          for (let y = Math.floor(top/14)*14; y < top+h; y += 14) {
+            g.fillRect(0, y, t, 1); g.fillRect(W-t, y, t, 1);
+          }
+          break;
+        case "iron":
+          g.fillStyle(theme.accent, 0.80);
+          for (let y = Math.floor(top/18)*18; y < top+h; y += 18) { g.fillRect(t/2-1, y+4, 3, 3); g.fillRect(W-t/2-1, y+4, 3, 3); }
+          break;
+        case "lava":
+          g.fillStyle(0xff6020, 0.70);
+          for (let y = Math.floor(top/20)*20; y < top+h; y += 20) { g.fillRect(2, y, t-4, 1); g.fillRect(W-t+2, y, t-4, 1); }
+          break;
+        case "forest":
+          g.fillStyle(0x1e4a22, 0.75);
+          for (let y = Math.floor(top/12)*12; y < top+h; y += 12) {
+            const kink = Math.sin((y+(this.time?this.time.now:0)*0.0005)*0.13)*(t/3);
+            g.fillRect(t/2+kink, y, 3, 12); g.fillRect(W-t/2-kink, y, 3, 12);
+          }
+          break;
+        case "storm":
+          g.fillStyle(theme.top, 0.30);
+          for (let y = Math.floor(top/30)*30; y < top+h; y += 30) { g.fillRect(2, y+4, t-4, 10); g.fillRect(W-t+2, y+4, t-4, 10); }
+          break;
+        case "space":
+          g.fillStyle(theme.accent, 0.22);
+          for (let y = Math.floor(top/36)*36; y < top+h; y += 36) { g.fillRect(0, y, t, 1); g.fillRect(W-t, y, t, 1); }
+          break;
+      }
     }
 
     // ---------------------------------------------------------------
