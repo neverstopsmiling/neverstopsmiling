@@ -217,6 +217,8 @@
     { id: "trex",    name: "T-REX",          color: 0xe07020, drawFn: "drawCharTrex"    },
     { id: "yeti",    name: "YETI",           color: 0xe4eef4, drawFn: "drawCharYeti"    },
     { id: "robot",   name: "ROBOT",          color: 0xb0b4bc, drawFn: "drawCharRobot"   },
+    { id: "skater",  name: "SKATER",         color: 0xff5050, drawFn: "drawCharSkater"  },
+    { id: "surfer",  name: "SURFER",         color: 0x3ad0e8, drawFn: "drawCharSurfer"  },
   ];
 
   function levelIndexFor(n) {
@@ -1565,6 +1567,68 @@
       // Visor glint
       g.fillStyle(0xffffff, 1);
       g.fillRect(bx + w - 7, by + 8, 2, 1);
+    }
+
+    drawCharSkater(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w/2, by = -h/2;
+      const boardW = w+6, boardX = -boardW/2, boardY = by+h-2;
+      g.fillStyle(0xff5050, 1); g.fillRect(boardX, boardY, boardW, 3);
+      g.fillStyle(0x7a1a1a, 1); g.fillRect(boardX, boardY+3, boardW, 1);
+      g.fillStyle(0xffdf3c, 1);
+      [boardX+2, boardX+boardW-6].forEach((wx) => {
+        g.fillRect(wx, boardY+5, 4, 4);
+        g.fillStyle(0x1a1a1a, 0.7);
+        if (speedFrac>0.05 && Math.sin(runPhase*3)>0) g.fillRect(wx+1, boardY+5, 2, 4);
+        else g.fillRect(wx, boardY+6, 4, 2);
+        g.fillStyle(0xffdf3c, 1);
+      });
+      const legH = h*0.28-(airborne?4:1), legY = boardY-legH;
+      g.fillStyle(0x2040a0, 1);
+      const s = !airborne && speedFrac>0.05 ? Math.sin(runPhase)*1.5 : 0;
+      g.fillRect(-w*0.2-2, legY-s, 4, legH); g.fillRect(w*0.2-2, legY+s, 4, legH);
+      const bodyH = h*0.42, bodyY = by+h*0.26;
+      g.fillStyle(0x555a66, 1); g.fillRect(bx, bodyY, w, bodyH);
+      g.fillStyle(0xffffff, 1); g.fillRect(bx+w/2-1, bodyY, 2, 6);
+      g.fillStyle(0x404550, 1); g.fillRect(bx+3, bodyY+bodyH-6, w-6, 4);
+      g.fillStyle(0x555a66, 1);
+      if (airborne) { g.fillRect(bx-4, bodyY+4, 4, bodyH*0.65); g.fillRect(bx+w, bodyY+4, 4, bodyH*0.65); }
+      else { const a=speedFrac>0.05?Math.sin(runPhase+Math.PI)*2:0; g.fillRect(bx-2, bodyY+a, 3, bodyH*0.8); g.fillRect(bx+w-1, bodyY-a, 3, bodyH*0.8); }
+      const headW = w-4, headX = bx+2, headY = by;
+      g.fillStyle(0xf2d1a8, 1); g.fillRect(headX, headY+4, headW, h*0.26-4);
+      g.fillStyle(0xff5050, 1); g.fillRect(headX-1, headY, headW+2, 6); g.fillRect(headX-4, headY+3, 5, 3);
+      g.fillStyle(0xffffff, 1); g.fillRect(headX+1, headY+2, 4, 1);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(headX+headW-7, headY+8, 2, 2); g.fillRect(headX+headW-3, headY+8, 2, 2);
+      g.fillRect(headX+headW-7, headY+12, 4, 1);
+    }
+
+    drawCharSurfer(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w/2, by = -h/2;
+      const boardW = w+16, boardX = -boardW/2, boardY = by+h-2;
+      g.fillStyle(0xffffff, 1); g.fillRect(boardX+2, boardY, boardW-4, 3);
+      g.fillStyle(0x3ad0e8, 1); g.fillRect(boardX+4, boardY+1, boardW-8, 1);
+      g.fillRect(boardX+4, boardY+3, 2, 4);
+      if (!airborne && speedFrac>0.2) { g.fillStyle(0xb8f0ff, 0.80); g.fillRect(boardX-4, boardY+4, 4, 1); g.fillRect(boardX+boardW, boardY+4, 4, 1); }
+      const legH = h*0.28, legY = boardY-legH;
+      g.fillStyle(0xe8b88a, 1);
+      const s = !airborne && speedFrac>0.05 ? Math.sin(runPhase*0.7)*1.2 : 0;
+      g.fillRect(-w*0.22-2, legY-s, 4, airborne?legH-4:legH); g.fillRect(w*0.22-2, legY+s, 4, airborne?legH-4:legH);
+      g.fillStyle(0x1a3a6a, 1);
+      g.fillRect(-w*0.22-3, legY, 6, 5); g.fillRect(w*0.22-3, legY, 6, 5);
+      const bodyH = h*0.32, bodyY = by+h*0.32;
+      g.fillStyle(0xff7a2a, 1); g.fillRect(bx, bodyY, w, bodyH);
+      g.fillStyle(0xffc070, 1); g.fillRect(bx+2, bodyY, 3, 3); g.fillRect(bx+w-5, bodyY, 3, 3);
+      g.fillStyle(0xe8b88a, 1);
+      if (airborne) { g.fillRect(bx-6, bodyY+2, 6, 4); g.fillRect(bx+w, bodyY-3, 6, 4); }
+      else { const a=speedFrac>0.05?Math.sin(now*0.004)*2:0; g.fillRect(bx-5, bodyY+4+a, 5, 4); g.fillRect(bx+w, bodyY+4-a, 5, 4); }
+      const headW = w-4, headX = bx+2, headY = by+1;
+      g.fillStyle(0xe8b88a, 1); g.fillRect(headX, headY+4, headW, h*0.26-4);
+      g.fillStyle(0xffcc40, 1); g.fillRect(headX, headY, headW, 5); g.fillRect(headX-3, headY+2, 4, 6); g.fillRect(headX-5, headY+5, 3, 5);
+      g.fillStyle(0x1a1a1a, 1); g.fillRect(headX+3, headY+8, headW-6, 3);
+      g.fillStyle(0x6efff0, 0.85); g.fillRect(headX+headW-6, headY+9, 3, 1);
+      g.fillStyle(0x000000, 1); g.fillRect(headX+headW-7, headY+13, 4, 1);
     }
 
     // ---------------------------------------------------------------
