@@ -75,11 +75,45 @@
   <div id="boot-msg">LOADING FROSTSPIRE</div>
 
   <script>
-    // Register the service worker for offline / install-to-home-screen.
-    // Runs before Phaser loads so the worker can cache this pageload too.
+    // Register the service worker. When a new version is available, pop a
+    // small banner inviting the user to reload so they pick it up.
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("sw.js").catch(() => {});
+        navigator.serviceWorker.register("sw.js").then((reg) => {
+          const showUpdate = (worker) => {
+            const banner = document.createElement("div");
+            banner.id = "sw-update-banner";
+            banner.textContent = "NEW VERSION - TAP TO RELOAD";
+            banner.style.cssText =
+              "position:fixed;left:50%;top:18px;transform:translateX(-50%);" +
+              "background:#ff7020;color:#fff;padding:10px 16px;border-radius:10px;" +
+              "font:700 12px/1 'Courier New',monospace;letter-spacing:1px;" +
+              "z-index:100;box-shadow:0 6px 20px rgba(0,0,0,.5);cursor:pointer;" +
+              "border:2px solid #fff;";
+            banner.addEventListener("click", () => {
+              try { worker.postMessage({ type: "SKIP_WAITING" }); } catch (_) {}
+              location.reload();
+            });
+            document.body.appendChild(banner);
+          };
+          if (reg.waiting) showUpdate(reg.waiting);
+          reg.addEventListener("updatefound", () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener("statechange", () => {
+              if (nw.state === "installed" && navigator.serviceWorker.controller) {
+                showUpdate(nw);
+              }
+            });
+          });
+          // A controllerchange fires when the new SW takes over.
+          let refreshing = false;
+          navigator.serviceWorker.addEventListener("controllerchange", () => {
+            if (refreshing) return;
+            refreshing = true;
+            // Only auto-reload if the user tapped the banner (skipWaiting).
+          });
+        }).catch(() => {});
       });
     }
   </script>
@@ -822,19 +856,26 @@
       }
 
       // ---- Touch fallback + jump-on-tap ----
-      // We tag the "game input" handler so it can skip when gameOver overlays
-      // are up (so taps on RESTART/SHARE don't also queue a jump).
+      // Scene-level pointerdown is the single source of truth for menu
+      // button taps (via this.menuHits) when we're not in "playing"
+      // state, and for jump/steering during play. Phaser zone-based
+      // setInteractive has been unreliable on some iOS builds so we
+      // stopped relying on it for critical menus.
       const gameTap = (pointer) => {
-        if (this.gameOver) return;
-        // Buffer a jump for 150 ms - consumed instantly on landing.
+        // Menus and overlays handle their own hits via menuHits.
+        if (this.state !== "playing") {
+          this.tryMenuHit(pointer.x, pointer.y);
+          return;
+        }
+        // Regular gameplay: top-right pause button first, then jump + steer.
+        if (this.tryHudHit(pointer.x, pointer.y)) return;
         this.jumpBufferUntil = this.time.now + 150;
-        // Remember which side was touched for the touch-steer fallback.
         if (pointer.x < this.W / 2) this.touchLeft = true;
         else this.touchRight = true;
       };
       this.input.on("pointerdown", gameTap);
       this.input.on("pointermove", (pointer) => {
-        if (this.gameOver) return;
+        if (this.state !== "playing") return;
         if (pointer.isDown) {
           if (pointer.x < this.W / 2) { this.touchLeft = true;  this.touchRight = false; }
           else                        { this.touchRight = true; this.touchLeft = false;  }
@@ -844,6 +885,41 @@
         this.touchLeft = false;
         this.touchRight = false;
       });
+    }
+
+    // ----- Menu hit dispatch -----
+    // Overlay screens register rectangular hit regions here. A single
+    // scene-level pointerdown handler routes taps, which avoids any
+    // Phaser zone/container interactive quirks on mobile.
+    addMenuHit(x, y, w, h, onPress, label) {
+      if (!this.menuHits) this.menuHits = [];
+      this.menuHits.push({ x, y, w, h, onPress, label: label || "" });
+    }
+    clearMenuHits() { this.menuHits = []; }
+    tryMenuHit(px, py) {
+      if (!this.menuHits || !this.menuHits.length) return false;
+      for (let i = this.menuHits.length - 1; i >= 0; i--) {
+        const h = this.menuHits[i];
+        if (px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h) {
+          try { h.onPress(); } catch (e) { console && console.error && console.error(e); }
+          return true;
+        }
+      }
+      return false;
+    }
+    // ----- HUD (in-game) hit dispatch -----
+    // Separate from menuHits because those get cleared on each overlay.
+    // Used for the always-visible pause button.
+    tryHudHit(px, py) {
+      if (!this.hudHits || !this.hudHits.length) return false;
+      for (let i = this.hudHits.length - 1; i >= 0; i--) {
+        const h = this.hudHits[i];
+        if (px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h) {
+          try { h.onPress(); } catch (e) { console && console.error && console.error(e); }
+          return true;
+        }
+      }
+      return false;
     }
 
     readInput() {
@@ -2222,15 +2298,47 @@
       c.add(comboLabel);
       comboLabel.setVisible(false);
 
+      // ---- Always-visible in-game PAUSE button (top-right) ----
+      // Rendered high up (depth 1100 via container), hit-tested via hudHits.
+      const pauseSize = Math.max(34, Math.round(S * 0.065));
+      const pauseX = this.W - pad - pauseSize;
+      const pauseY = pad - 2;
+      const pauseBtn = this.add.graphics();
+      pauseBtn.fillStyle(0x000000, 0.55);
+      pauseBtn.fillRoundedRect(pauseX, pauseY, pauseSize, pauseSize, 8);
+      pauseBtn.lineStyle(2, 0x9cd9ff, 0.9);
+      pauseBtn.strokeRoundedRect(pauseX, pauseY, pauseSize, pauseSize, 8);
+      // Pause bars
+      pauseBtn.fillStyle(0x9cd9ff, 1);
+      const barW = Math.round(pauseSize * 0.15);
+      const barH = Math.round(pauseSize * 0.5);
+      const bar1X = pauseX + pauseSize * 0.32 - barW / 2;
+      const bar2X = pauseX + pauseSize * 0.68 - barW / 2;
+      const barY  = pauseY + (pauseSize - barH) / 2;
+      pauseBtn.fillRect(bar1X, barY, barW, barH);
+      pauseBtn.fillRect(bar2X, barY, barW, barH);
+      c.add(pauseBtn);
+
+      // Register HUD hit for the pause button. hudHits fire during playing.
+      this.hudHits = [{
+        x: pauseX - 4, y: pauseY - 4,
+        w: pauseSize + 8, h: pauseSize + 8,
+        onPress: () => this.togglePause(),
+      }];
+
+      // Bump "BEST" label x so it doesn't collide with the pause square.
+      bestTxt.setX(pauseX - 8);
+
       this.hud = {
         container: c,
         floorPlate, floorTxt, scorePlate, scoreTxt, bestTxt,
         meterBG, meterFill, meterGlow, multTxt, comboLabel,
+        pauseBtn, pauseSize,
         pad, small, big, S,
         // Tickers / pulse state
         scoreShown: 0,
         multPrev: 0,
-        meterPulse: 0,      // 0..1, decays, pulses on each qualifying jump
+        meterPulse: 0,
       };
     }
 
@@ -2414,6 +2522,7 @@
 
     triggerGameOver() {
       this.gameOver = true;
+      this.state = "gameover";
       this.audio.gameOver();
       // Persist all three bests to localStorage.
       if (this.player.highestFloor > this.best.floor) {
@@ -2435,31 +2544,33 @@
 
     showGameOverScreen() {
       if (this.gameOverOverlay) this.gameOverOverlay.destroy();
+      // New overlay = fresh button set.
+      this.clearMenuHits();
+
       const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2000);
 
       const bg = this.add.graphics();
-      bg.fillStyle(0x000000, 0.75);
+      bg.fillStyle(0x000000, 0.80);
       bg.fillRect(0, 0, this.W, this.H);
       g.add(bg);
 
       const cx = this.W / 2;
-
-      // Size everything as a fraction of the shorter axis so the layout
-      // stays compact on short landscape screens too.
       const S = Math.min(this.W, this.H);
       const titleSize = Math.round(S * 0.09);
-      const lineSize  = Math.round(S * 0.035);
-      const btnH      = Math.round(S * 0.07);
-      const btnW      = Math.min(this.W * 0.7, S * 0.55);
-      const gap       = Math.round(S * 0.018);
+      const lineSize  = Math.round(S * 0.034);
+      const btnH      = Math.round(S * 0.075);
+      const btnW      = Math.min(this.W * 0.74, S * 0.62);
+      const gap       = Math.round(S * 0.014);
 
-      // Content block laid out top-to-bottom, centered vertically.
+      const runLinesCount = 3;
+      const bestLinesCount = 3;
+      const btnCount = this.tilt && this.tilt.enabled ? 4 : 3;
       const blockH =
-        titleSize * 1.1 + gap +                    // title
-        (lineSize * 1.25) * 3 + gap +              // this run
-        (lineSize * 1.25) * 3 + gap * 1.5 +        // bests
-        btnH + gap + btnH;                          // two buttons
-      let y = (this.H - blockH) / 2;
+        titleSize * 1.1 + gap +
+        lineSize * 1.25 * runLinesCount + gap +
+        lineSize * 1.25 * bestLinesCount + gap * 1.5 +
+        (btnH + gap) * btnCount;
+      let y = Math.max(S * 0.04, (this.H - blockH) / 2);
 
       const title = this.add.text(cx, y, "GAME OVER", {
         fontFamily: "Courier New, monospace",
@@ -2507,37 +2618,36 @@
 
       y += gap * 1.5;
 
+      // Visual button. Interactivity comes from menuHits + the scene-level
+      // pointerdown handler, which is reliable on iOS where zone hit-boxes
+      // have been flaky.
       const addBtn = (yy, label, fill, stroke, onPress) => {
         const gb = this.add.graphics();
         gb.fillStyle(fill, 1);
-        gb.fillRoundedRect(cx - btnW / 2, yy, btnW, btnH, 10);
-        gb.lineStyle(2, stroke, 1);
-        gb.strokeRoundedRect(cx - btnW / 2, yy, btnW, btnH, 10);
+        gb.fillRoundedRect(cx - btnW / 2, yy, btnW, btnH, 12);
+        gb.lineStyle(3, stroke, 1);
+        gb.strokeRoundedRect(cx - btnW / 2, yy, btnW, btnH, 12);
         g.add(gb);
         const lbl = this.add.text(cx, yy + btnH / 2, label, {
           fontFamily: "Courier New, monospace",
-          fontSize: lineSize + "px",
+          fontSize: Math.round(lineSize * 1.15) + "px",
           fontStyle: "bold",
           color: "#fff",
+          stroke: "#000",
+          strokeThickness: 2,
         }).setOrigin(0.5);
         g.add(lbl);
-        const hit = this.add.zone(cx, yy + btnH / 2, btnW, btnH).setOrigin(0.5)
-          .setInteractive({ useHandCursor: true });
-        g.add(hit);
-        hit.on("pointerdown", onPress);
+        this.addMenuHit(cx - btnW / 2, yy, btnW, btnH, onPress, label);
       };
 
-      addBtn(y, "RESTART", 0x2e84d6, 0x9cd9ff, () => this.restartRun());
+      addBtn(y, "RESTART",   0x2e84d6, 0x9cd9ff, () => this.restartRun());
       y += btnH + gap;
-      addBtn(y, "SHARE",   0x444b66, 0xffdf3c, () => this.shareScore());
-
-      // Character button - opens the select screen from game-over.
+      addBtn(y, "SHARE",     0x444b66, 0xffdf3c, () => this.shareScore());
       y += btnH + gap;
       addBtn(y, "CHARACTER", 0x1a1a24, 0xffdf3c, () => this.openCharacterSelect());
 
-      // Tilt-invert toggle on mobile only (doesn't show up for desktops).
       if (this.tilt && this.tilt.enabled) {
-        y += btnH + gap * 0.6;
+        y += btnH + gap;
         const tiltLabel = "FLIP TILT: " + (this.tilt.invert ? "ON" : "OFF");
         addBtn(y, tiltLabel, 0x223344, 0x9cd9ff, () => {
           this.tilt.invert = !this.tilt.invert;
@@ -2546,51 +2656,57 @@
         });
       }
 
-      this.input.keyboard.once("keydown-SPACE", () => this.gameOver && this.restartRun());
-      this.input.keyboard.once("keydown-ENTER", () => this.gameOver && this.restartRun());
+      // Keyboard fallback - restart on space/enter when game-over.
+      this.input.keyboard.once("keydown-SPACE", () => {
+        if (this.state === "gameover") this.restartRun();
+      });
+      this.input.keyboard.once("keydown-ENTER", () => {
+        if (this.state === "gameover") this.restartRun();
+      });
 
       this.gameOverOverlay = g;
     }
 
     openCharacterSelect() {
+      // Toggle off if already open
       if (this.characterSelectOverlay) {
-        this.characterSelectOverlay.destroy();
-        this.characterSelectOverlay = null;
+        this.closeCharacterSelect();
         return;
       }
+      // Stash the state we're suspending so we can return to the right screen.
+      this._charSelectReturnState = this.state;
+      this.state = "charselect";
+      this.clearMenuHits();
+
       const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2200);
 
       const bg = this.add.graphics();
-      bg.fillStyle(0x000000, 0.82);
+      bg.fillStyle(0x000000, 0.90);
       bg.fillRect(0, 0, this.W, this.H);
       g.add(bg);
 
       const S = Math.min(this.W, this.H);
-      const titleSize = Math.round(S * 0.08);
+      const titleSize = Math.round(S * 0.075);
 
-      const title = this.add.text(this.W / 2, S * 0.05, "CHOOSE YOUR CLIMBER", {
+      const title = this.add.text(this.W / 2, S * 0.04, "CHOOSE YOUR CLIMBER", {
         fontFamily: "Courier New, monospace",
         fontSize: titleSize + "px", fontStyle: "bold",
         color: "#ffdf3c", stroke: "#000", strokeThickness: 5,
       }).setOrigin(0.5, 0);
       g.add(title);
 
-      // 2 cols x 3 rows grid.
-      const cols = 2, rows = 3;
-      const gridTop = S * 0.05 + titleSize * 1.6;
-      const gridBottom = this.H - S * 0.12;
-      const gridW = Math.min(this.W - S * 0.1, S * 1.1);
+      const gridTop = S * 0.04 + titleSize * 1.4;
+      const gridBottom = this.H - S * 0.11;
+      // Auto pick column count from aspect ratio.
+      const cols = this.W / this.H > 1.2 ? 3 : 2;
+      const rows = Math.ceil(CHARACTERS.length / cols);
+      const gridW = Math.min(this.W - S * 0.08, S * 1.3);
       const cellW = gridW / cols;
       const cellH = (gridBottom - gridTop) / rows;
       const gridX = (this.W - gridW) / 2;
 
-      const nameSize = Math.round(Math.min(cellH * 0.14, S * 0.03));
+      const nameSize = Math.round(Math.min(cellH * 0.15, S * 0.032));
       const scale = Math.min(cellW, cellH) / 60;
-
-      const close = () => {
-        g.destroy();
-        if (this.characterSelectOverlay === g) this.characterSelectOverlay = null;
-      };
 
       CHARACTERS.forEach((c, i) => {
         const col = i % cols, row = Math.floor(i / cols);
@@ -2598,15 +2714,16 @@
         const cy = gridTop + cellH * row + cellH / 2;
 
         const selected = c.id === this.characterId;
+        const cellX = cx - cellW * 0.45;
+        const cellY = cy - cellH * 0.45;
         const cellBG = this.add.graphics();
-        cellBG.fillStyle(selected ? 0x223b66 : 0x12182a, 0.92);
-        cellBG.fillRoundedRect(cx - cellW * 0.45, cy - cellH * 0.45, cellW * 0.90, cellH * 0.90, 10);
-        cellBG.lineStyle(selected ? 3 : 2, selected ? 0xffdf3c : 0x9cd9ff, 1);
-        cellBG.strokeRoundedRect(cx - cellW * 0.45, cy - cellH * 0.45, cellW * 0.90, cellH * 0.90, 10);
+        cellBG.fillStyle(selected ? 0x223b66 : 0x12182a, 0.95);
+        cellBG.fillRoundedRect(cellX, cellY, cellW * 0.90, cellH * 0.90, 12);
+        cellBG.lineStyle(selected ? 4 : 2, selected ? 0xffdf3c : 0x9cd9ff, 1);
+        cellBG.strokeRoundedRect(cellX, cellY, cellW * 0.90, cellH * 0.90, 12);
         g.add(cellBG);
 
-        // Character preview (uses the same drawers as in-game rendering)
-        const preview = this.drawCharacterPreview(c.id, cx, cy - nameSize * 1.2, scale);
+        const preview = this.drawCharacterPreview(c.id, cx, cy - nameSize * 1.1, scale);
         g.add(preview);
 
         const lbl = this.add.text(cx, cy + cellH * 0.30, c.name, {
@@ -2618,40 +2735,52 @@
         }).setOrigin(0.5);
         g.add(lbl);
 
-        const hit = this.add.zone(cx, cy, cellW * 0.90, cellH * 0.90)
-          .setOrigin(0.5).setInteractive({ useHandCursor: true });
-        g.add(hit);
-        hit.on("pointerdown", () => {
+        this.addMenuHit(cellX, cellY, cellW * 0.90, cellH * 0.90, () => {
           this.characterId = c.id;
           try { localStorage.setItem(LS_KEYS.character, c.id); } catch (_) {}
           this.characterDrawer = this[c.drawFn];
-          close();
-          // Redraw game-over overlay if it was underneath (reflect new sprite
-          // next run) - currently no live preview on that screen, so just
-          // leave it. Player sprite will update on next draw tick.
-        });
+          // Audio confirm
+          if (this.audio) this.audio._blip({ type: "triangle", f0: 880, dur: 0.1, vol: 0.2 });
+          this.closeCharacterSelect();
+        }, "CHAR:" + c.id);
       });
 
       // Close button
-      const closeBtnY = this.H - S * 0.07;
+      const closeBtnW = Math.min(S * 0.40, this.W * 0.5);
+      const closeBtnH = Math.round(S * 0.07);
+      const closeBtnX = this.W / 2 - closeBtnW / 2;
+      const closeBtnY = this.H - S * 0.09;
       const closeBG = this.add.graphics();
       closeBG.fillStyle(0x444b66, 1);
-      closeBG.fillRoundedRect(this.W / 2 - S * 0.15, closeBtnY - S * 0.035, S * 0.30, S * 0.07, 8);
-      closeBG.lineStyle(2, 0x9cd9ff, 1);
-      closeBG.strokeRoundedRect(this.W / 2 - S * 0.15, closeBtnY - S * 0.035, S * 0.30, S * 0.07, 8);
+      closeBG.fillRoundedRect(closeBtnX, closeBtnY, closeBtnW, closeBtnH, 10);
+      closeBG.lineStyle(3, 0x9cd9ff, 1);
+      closeBG.strokeRoundedRect(closeBtnX, closeBtnY, closeBtnW, closeBtnH, 10);
       g.add(closeBG);
-      const closeLabel = this.add.text(this.W / 2, closeBtnY, "CLOSE", {
+      const closeLabel = this.add.text(this.W / 2, closeBtnY + closeBtnH / 2, "CLOSE", {
         fontFamily: "Courier New, monospace",
-        fontSize: Math.round(S * 0.03) + "px", fontStyle: "bold",
-        color: "#fff",
+        fontSize: Math.round(S * 0.035) + "px", fontStyle: "bold",
+        color: "#fff", stroke: "#000", strokeThickness: 2,
       }).setOrigin(0.5);
       g.add(closeLabel);
-      const closeHit = this.add.zone(this.W / 2, closeBtnY, S * 0.30, S * 0.07)
-        .setOrigin(0.5).setInteractive({ useHandCursor: true });
-      g.add(closeHit);
-      closeHit.on("pointerdown", close);
+      this.addMenuHit(closeBtnX, closeBtnY, closeBtnW, closeBtnH,
+        () => this.closeCharacterSelect(), "CLOSE");
 
       this.characterSelectOverlay = g;
+    }
+
+    closeCharacterSelect() {
+      if (this.characterSelectOverlay) {
+        this.characterSelectOverlay.destroy();
+        this.characterSelectOverlay = null;
+      }
+      this.clearMenuHits();
+      // Return to the previous state and redraw its buttons.
+      const prev = this._charSelectReturnState || "title";
+      this._charSelectReturnState = null;
+      if (prev === "gameover") { this.state = "gameover"; this.showGameOverScreen(); }
+      else if (prev === "paused") { this.state = "paused"; this.showPauseMenu(); }
+      else if (prev === "title")   { this.state = "title"; this.showTitleScreen(); }
+      else                         { this.state = prev; }
     }
 
     drawCharacterPreview(id, x, y, scale) {
@@ -2669,21 +2798,24 @@
     }
 
     restartRun() {
-      if (this._restarting) return;    // guard against double-taps
+      if (this._restarting) return;
       this._restarting = true;
 
-      // Kill every tween belonging to overlay children BEFORE destroy so they
-      // don't fire callbacks on already-destroyed objects.
+      // Kill tweens + timers BEFORE destroy so callbacks don't touch freed
+      // objects. killAll hits scene-wide - that's what we want mid-restart.
       this.tweens.killAll();
-
-      // Clear any pending timers queued from FX (HURRY UP cleanup etc).
       if (this.time && this.time.removeAllEvents) this.time.removeAllEvents();
 
-      if (this.gameOverOverlay)       { this.gameOverOverlay.destroy();       this.gameOverOverlay = null; }
-      if (this.characterSelectOverlay){ this.characterSelectOverlay.destroy(); this.characterSelectOverlay = null; }
-      if (this._hurryLabel)           { this._hurryLabel.destroy();           this._hurryLabel = null; }
-      if (this._edgeFlash)            { this._edgeFlash.destroy();            this._edgeFlash = null; }
-      if (this._shareToast)           { this._shareToast.destroy();           this._shareToast = null; }
+      // Tear down every overlay we may have left up.
+      if (this.gameOverOverlay)        { this.gameOverOverlay.destroy();        this.gameOverOverlay = null; }
+      if (this.characterSelectOverlay) { this.characterSelectOverlay.destroy(); this.characterSelectOverlay = null; }
+      if (this.pauseOverlay)           { this.pauseOverlay.destroy();           this.pauseOverlay = null; }
+      if (this.countdownOverlay)       { this.countdownOverlay.destroy();       this.countdownOverlay = null; }
+      if (this._hurryLabel)            { this._hurryLabel.destroy();            this._hurryLabel = null; }
+      if (this._edgeFlash)             { this._edgeFlash.destroy();             this._edgeFlash = null; }
+      if (this._shareToast)            { this._shareToast.destroy();            this._shareToast = null; }
+
+      this.clearMenuHits();
 
       this.floorsGfx.clear();
       this.playerGfx.clear();
@@ -2691,16 +2823,16 @@
       this.particlesGfx.clear();
       this.ghostGfx.clear();
 
-      // Release any held touch buttons from the previous run.
       this.touchLeft = this.touchRight = false;
       this.jumpBufferUntil = 0;
 
-      // Ensure the tilt DOM button isn't covering anything after restart.
       if (this.tiltBtn && this.tilt && this.tilt.enabled) {
         this.tiltBtn.style.display = "none";
       }
 
       this.resetRun();
+      this.state = "playing";
+      if (this.hud) this.hud.container.setVisible(true);
       this._restarting = false;
     }
 
@@ -2775,91 +2907,120 @@
     // ---------------------------------------------------------------
     showTitleScreen() {
       if (this.titleOverlay) this.titleOverlay.destroy();
-      // Hide HUD + any reward popups etc. while the title is up.
       if (this.hud) this.hud.container.setVisible(false);
+      this.clearMenuHits();
 
       const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2400);
 
       const dim = this.add.graphics();
-      dim.fillStyle(0x000000, 0.40);
+      dim.fillStyle(0x000000, 0.42);
       dim.fillRect(0, 0, this.W, this.H);
       g.add(dim);
 
       const cx = this.W / 2;
       const S = Math.min(this.W, this.H);
-      const titleSize = Math.round(S * 0.17);
+      const titleSize = Math.round(S * 0.16);
       const subSize   = Math.round(S * 0.045);
-      const hintSize  = Math.round(S * 0.032);
+      const hintSize  = Math.round(S * 0.028);
 
-      // Big logo shadow
-      const logoShadow = this.add.text(cx + 4, S * 0.20 + 4, "FROSTSPIRE", {
+      const logoY = S * 0.16;
+      const logoShadow = this.add.text(cx + 4, logoY + 4, "FROSTSPIRE", {
         fontFamily: "Courier New, monospace",
         fontSize: titleSize + "px", fontStyle: "bold",
         color: "#000000",
-      }).setOrigin(0.5);
-      logoShadow.setAlpha(0.7);
+      }).setOrigin(0.5).setAlpha(0.7);
       g.add(logoShadow);
 
-      const logo = this.add.text(cx, S * 0.20, "FROSTSPIRE", {
+      const logo = this.add.text(cx, logoY, "FROSTSPIRE", {
         fontFamily: "Courier New, monospace",
         fontSize: titleSize + "px", fontStyle: "bold",
         color: "#9cd9ff", stroke: "#0b2848", strokeThickness: 8,
       }).setOrigin(0.5);
       g.add(logo);
 
-      const sub = this.add.text(cx, S * 0.20 + titleSize * 0.65, "A VERTICAL CLIMB", {
+      const sub = this.add.text(cx, logoY + titleSize * 0.55, "A VERTICAL CLIMB", {
         fontFamily: "Courier New, monospace",
         fontSize: Math.round(subSize * 0.75) + "px", fontStyle: "bold",
         color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
-        letterSpacing: 4,
       }).setOrigin(0.5);
       g.add(sub);
 
-      // Character preview in the middle of the screen
-      const previewY = this.H * 0.52;
+      // Character preview centered, tappable to open select.
+      const previewY = this.H * 0.44;
       const preview = this.drawCharacterPreview(this.characterId || "climber",
-        cx, previewY, Math.min(this.W, this.H) * 0.07);
+        cx, previewY, Math.min(this.W, this.H) * 0.09);
       g.add(preview);
       this._titlePreview = preview;
       this._titlePreviewId = this.characterId || "climber";
 
-      // Tap to start, with gentle pulsing
-      const tap = this.add.text(cx, this.H - S * 0.22, "TAP TO CLIMB", {
+      // Selected-character label just below the preview.
+      const charEntry = CHARACTERS.find(c => c.id === (this.characterId || "climber")) || CHARACTERS[0];
+      const selLbl = this.add.text(cx, previewY + S * 0.08, "SELECTED: " + charEntry.name, {
         fontFamily: "Courier New, monospace",
-        fontSize: subSize + "px", fontStyle: "bold",
+        fontSize: Math.round(subSize * 0.7) + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 3,
+      }).setOrigin(0.5);
+      g.add(selLbl);
+
+      // BIG START GAME button (primary call-to-action).
+      const startBtnW = Math.min(this.W * 0.80, S * 0.72);
+      const startBtnH = Math.round(S * 0.11);
+      const startBtnY = this.H - S * 0.30 - startBtnH;
+
+      const startBG = this.add.graphics();
+      startBG.fillStyle(0x2e84d6, 1);
+      startBG.fillRoundedRect(cx - startBtnW / 2, startBtnY, startBtnW, startBtnH, 14);
+      startBG.lineStyle(4, 0xffdf3c, 1);
+      startBG.strokeRoundedRect(cx - startBtnW / 2, startBtnY, startBtnW, startBtnH, 14);
+      g.add(startBG);
+
+      const startLbl = this.add.text(cx, startBtnY + startBtnH / 2, "\u25B6  START GAME", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.055) + "px",
+        fontStyle: "bold",
         color: "#ffffff", stroke: "#000", strokeThickness: 5,
       }).setOrigin(0.5);
-      g.add(tap);
-      this._titleTapLabel = tap;
+      g.add(startLbl);
 
-      // Small buttons: CHARACTER, MUTE
-      const btnSize = Math.round(S * 0.035);
-      const makeMiniBtn = (yy, label, onPress) => {
-        const w = S * 0.30, h = btnSize * 2;
-        const bg = this.add.graphics();
-        bg.fillStyle(0x1a2540, 0.9);
-        bg.fillRoundedRect(cx - w / 2, yy - h / 2, w, h, 8);
-        bg.lineStyle(2, 0x9cd9ff, 1);
-        bg.strokeRoundedRect(cx - w / 2, yy - h / 2, w, h, 8);
-        g.add(bg);
-        const lbl = this.add.text(cx, yy, label, {
-          fontFamily: "Courier New, monospace",
-          fontSize: btnSize + "px", fontStyle: "bold",
-          color: "#fff",
-        }).setOrigin(0.5);
-        g.add(lbl);
-        const hit = this.add.zone(cx, yy, w, h).setOrigin(0.5)
-          .setInteractive({ useHandCursor: true });
-        g.add(hit);
-        hit.on("pointerdown", (_p, _x, _y, ev) => {
-          ev.stopPropagation && ev.stopPropagation();
-          onPress();
-        });
-      };
-      makeMiniBtn(this.H - S * 0.12, "CHARACTER", () => this.openCharacterSelect());
+      // Pulse the button so the user sees it as the target.
+      this._titleTween = this.tweens.add({
+        targets: [startBG, startLbl],
+        alpha: { from: 1, to: 0.72 },
+        duration: 700, yoyo: true, repeat: -1, ease: "Sine.InOut",
+      });
 
-      // Hints below
-      const hint = this.add.text(cx, this.H - S * 0.06,
+      this.addMenuHit(cx - startBtnW / 2, startBtnY, startBtnW, startBtnH,
+        () => this.startFromTitle(), "START");
+
+      // CHARACTER button - made prominent with an arrow to the preview.
+      const chrBtnW = Math.min(this.W * 0.80, S * 0.72);
+      const chrBtnH = Math.round(S * 0.07);
+      const chrBtnY = startBtnY + startBtnH + S * 0.02;
+
+      const chrBG = this.add.graphics();
+      chrBG.fillStyle(0x1a1a24, 0.95);
+      chrBG.fillRoundedRect(cx - chrBtnW / 2, chrBtnY, chrBtnW, chrBtnH, 10);
+      chrBG.lineStyle(2, 0xffdf3c, 1);
+      chrBG.strokeRoundedRect(cx - chrBtnW / 2, chrBtnY, chrBtnW, chrBtnH, 10);
+      g.add(chrBG);
+
+      const chrLbl = this.add.text(cx, chrBtnY + chrBtnH / 2, "CHOOSE CHARACTER \u25B6", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.033) + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
+      }).setOrigin(0.5);
+      g.add(chrLbl);
+      this.addMenuHit(cx - chrBtnW / 2, chrBtnY, chrBtnW, chrBtnH,
+        () => this.openCharacterSelect(), "CHARACTER");
+
+      // Also let the user tap the preview itself to open select.
+      const previewSize = Math.min(this.W, this.H) * 0.25;
+      this.addMenuHit(cx - previewSize / 2, previewY - previewSize / 2,
+        previewSize, previewSize,
+        () => this.openCharacterSelect(), "PREVIEW");
+
+      // Bottom-line hints.
+      const hint = this.add.text(cx, this.H - S * 0.05,
         "DESKTOP: \u2190 \u2192 / A D  +  SPACE     MOBILE: TILT  +  TAP", {
         fontFamily: "Courier New, monospace",
         fontSize: hintSize + "px",
@@ -2868,25 +3029,11 @@
       }).setOrigin(0.5);
       g.add(hint);
 
-      // Tap anywhere in the backdrop starts the game. We guard against
-      // taps landing on the buttons via a zone that sits BEHIND the
-      // foreground buttons (lower depth inside the container).
-      const backdropHit = this.add.zone(0, 0, this.W, this.H)
-        .setOrigin(0, 0).setInteractive();
-      g.addAt(backdropHit, 1);     // just above dim so FG clickables win
-      backdropHit.on("pointerdown", () => this.startFromTitle());
-
-      // Keyboard: any key begins
+      // Keyboard: space/enter/up also begins.
       this._titleKeyHandler = () => this.startFromTitle();
       this.input.keyboard.once("keydown-SPACE", this._titleKeyHandler);
       this.input.keyboard.once("keydown-ENTER", this._titleKeyHandler);
       this.input.keyboard.once("keydown-UP",    this._titleKeyHandler);
-
-      // Pulsing tap label tween (stored so we can kill it)
-      this._titleTween = this.tweens.add({
-        targets: tap, alpha: { from: 1, to: 0.35 },
-        duration: 600, yoyo: true, repeat: -1, ease: "Sine.InOut",
-      });
 
       this.titleOverlay = g;
     }
@@ -2910,13 +3057,11 @@
       if (this._titleTween) { this._titleTween.stop(); this._titleTween = null; }
       if (this.titleOverlay) { this.titleOverlay.destroy(); this.titleOverlay = null; }
       this._titlePreview = null;
-      this.state = "playing";
-      // Fresh run (clears any state from the pre-title resetRun())
-      this.restartRun();
-      this.state = "playing";
+      this.clearMenuHits();
+      this.restartRun();    // sets state = "playing"
       this.runStartTime = this.time.now;
       this.hintUntil = this.time.now + 5500;
-      if (this.hud) this.hud.container.setVisible(true);
+      if (this.audio) this.audio.init(); // unlock audio on the gesture
     }
 
     // ---------------------------------------------------------------
@@ -2929,20 +3074,25 @@
     showPauseMenu() {
       this.state = "paused";
       if (this.pauseOverlay) this.pauseOverlay.destroy();
+      this.clearMenuHits();
+
       const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2300);
       const bg = this.add.graphics();
-      bg.fillStyle(0x000000, 0.70);
+      bg.fillStyle(0x000000, 0.72);
       bg.fillRect(0, 0, this.W, this.H);
       g.add(bg);
 
       const cx = this.W / 2;
       const S = Math.min(this.W, this.H);
-      const titleSize = Math.round(S * 0.10);
-      const btnLbl = Math.round(S * 0.035);
-      const btnH = Math.round(S * 0.07);
-      const btnW = Math.min(this.W * 0.65, S * 0.55);
-      const gap = Math.round(S * 0.022);
-      let y = this.H / 2 - (titleSize * 1.2 + (btnH + gap) * 4) / 2;
+      const titleSize = Math.round(S * 0.11);
+      const btnLblSize = Math.round(S * 0.040);
+      const btnH = Math.round(S * 0.075);
+      const btnW = Math.min(this.W * 0.74, S * 0.65);
+      const gap = Math.round(S * 0.014);
+
+      const btnCount = 5;
+      const totalH = titleSize * 1.2 + gap + (btnH + gap) * btnCount;
+      let y = Math.max(S * 0.04, (this.H - totalH) / 2);
 
       const title = this.add.text(cx, y, "PAUSED", {
         fontFamily: "Courier New, monospace",
@@ -2955,35 +3105,110 @@
       const makeBtn = (label, onPress, fill, stroke) => {
         const gb = this.add.graphics();
         gb.fillStyle(fill, 1);
-        gb.fillRoundedRect(cx - btnW / 2, y, btnW, btnH, 10);
-        gb.lineStyle(2, stroke, 1);
-        gb.strokeRoundedRect(cx - btnW / 2, y, btnW, btnH, 10);
+        gb.fillRoundedRect(cx - btnW / 2, y, btnW, btnH, 12);
+        gb.lineStyle(3, stroke, 1);
+        gb.strokeRoundedRect(cx - btnW / 2, y, btnW, btnH, 12);
         g.add(gb);
         const lbl = this.add.text(cx, y + btnH / 2, label, {
           fontFamily: "Courier New, monospace",
-          fontSize: btnLbl + "px", fontStyle: "bold",
-          color: "#fff",
+          fontSize: btnLblSize + "px", fontStyle: "bold",
+          color: "#fff", stroke: "#000", strokeThickness: 2,
         }).setOrigin(0.5);
         g.add(lbl);
-        const hit = this.add.zone(cx, y + btnH / 2, btnW, btnH).setOrigin(0.5)
-          .setInteractive({ useHandCursor: true });
-        g.add(hit);
-        hit.on("pointerdown", onPress);
+        this.addMenuHit(cx - btnW / 2, y, btnW, btnH, onPress, label);
         y += btnH + gap;
       };
 
-      makeBtn("RESUME",    () => this.hidePauseMenu(),                  0x2e84d6, 0x9cd9ff);
-      makeBtn("CHARACTER", () => this.openCharacterSelect(),            0x1a1a24, 0xffdf3c);
+      makeBtn("\u25B6  RESUME",     () => this.requestResume(),                     0x2e84d6, 0xffdf3c);
+      makeBtn("CHARACTER",          () => this.openCharacterSelect(),              0x1a1a24, 0xffdf3c);
       makeBtn(this.audio.muted ? "UNMUTE" : "MUTE",
-        () => { this.audio.toggleMute(); this.showPauseMenu(); },       0x223344, 0x9cd9ff);
-      makeBtn("RESTART",   () => { this.hidePauseMenu(); this.restartRun(); }, 0x664434, 0xffdf3c);
-      makeBtn("HOME",      () => { this.hidePauseMenu(true); this.state = "title"; this.showTitleScreen(); }, 0x444b66, 0xff9a9a);
+                                    () => { this.audio.toggleMute(); this.showPauseMenu(); }, 0x223344, 0x9cd9ff);
+      makeBtn("RESTART",            () => { this.hidePauseMenu(true); this.restartRun(); }, 0x664434, 0xffdf3c);
+      makeBtn("HOME",               () => { this.hidePauseMenu(true); this.state = "title"; this.showTitleScreen(); }, 0x444b66, 0xff9a9a);
 
       this.pauseOverlay = g;
     }
+
     hidePauseMenu(keepState) {
       if (this.pauseOverlay) { this.pauseOverlay.destroy(); this.pauseOverlay = null; }
+      this.clearMenuHits();
       if (!keepState) this.state = "playing";
+    }
+
+    // ---- 3-second resume countdown ----
+    requestResume() {
+      this.hidePauseMenu(true);      // keep state="paused" for safety
+      this.showResumeCountdown();
+    }
+
+    showResumeCountdown() {
+      if (this.countdownOverlay) this.countdownOverlay.destroy();
+      this.clearMenuHits();
+      this.state = "countdown";
+
+      const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2350);
+      const bg = this.add.graphics();
+      bg.fillStyle(0x000000, 0.55);
+      bg.fillRect(0, 0, this.W, this.H);
+      g.add(bg);
+
+      const cx = this.W / 2, cy = this.H / 2;
+      const S = Math.min(this.W, this.H);
+
+      const bigLabel = this.add.text(cx, cy, "3", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.35) + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 10,
+      }).setOrigin(0.5);
+      g.add(bigLabel);
+
+      const hint = this.add.text(cx, cy + S * 0.22, "GET READY", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.05) + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 4,
+      }).setOrigin(0.5);
+      g.add(hint);
+
+      this.countdownOverlay = g;
+      this.countdownBigLabel = bigLabel;
+
+      // Flush stale input so the player doesn't jump immediately.
+      this.jumpBufferUntil = 0;
+      this.touchLeft = this.touchRight = false;
+
+      const beep = (freq) => {
+        if (this.audio) this.audio._blip({ type: "triangle", f0: freq, dur: 0.12, vol: 0.22 });
+      };
+      beep(660);
+
+      const tick = (n) => {
+        if (!this.countdownOverlay) return;
+        bigLabel.setText(String(n));
+        bigLabel.setScale(1.5);
+        bigLabel.setAlpha(1);
+        this.tweens.add({
+          targets: bigLabel, scale: 1.0, alpha: 0.8,
+          duration: 800, ease: "Sine.Out",
+        });
+      };
+
+      this.time.delayedCall(1000, () => { if (this.state === "countdown") { tick(2); beep(784); } });
+      this.time.delayedCall(2000, () => { if (this.state === "countdown") { tick(1); beep(880); } });
+      this.time.delayedCall(3000, () => {
+        if (this.state !== "countdown") return;
+        bigLabel.setText("GO!");
+        bigLabel.setScale(1.2);
+        bigLabel.setColor("#9cd9ff");
+        hint.setVisible(false);
+        beep(1320);
+        // Clear any stale input buffered during the countdown one more time.
+        this.jumpBufferUntil = 0;
+        this.touchLeft = this.touchRight = false;
+        this.time.delayedCall(400, () => {
+          if (this.countdownOverlay) { this.countdownOverlay.destroy(); this.countdownOverlay = null; }
+          this.state = "playing";
+        });
+      });
     }
 
     // ---------------------------------------------------------------
@@ -3021,29 +3246,29 @@
     }
 
     update(_time, delta) {
-      // Title: animate backdrop only.
+      // Title: animate backdrop only (menu is interactive via menuHits).
       if (this.state === "title") {
         this.drawBackground();
         this.animateTitleScreen();
         return;
       }
-      // Paused: freeze world, keep overlay responsive.
-      if (this.state === "paused") {
+      // Paused / character select / countdown / gameover all freeze the
+      // game world but keep the current frame rendered so the overlay
+      // reads like a modal, not a cold blank.
+      if (this.state === "paused"    ||
+          this.state === "charselect" ||
+          this.state === "countdown" ||
+          this.state === "gameover") {
         this.drawBackground();
         this.drawWalls();
         this.drawFloors();
         this.drawGhost();
         this.drawParticles();
         this.drawPlayer();
-        this.drawHUD();
+        if (this.state !== "gameover") this.drawHUD();
         return;
       }
-      if (this.gameOver) {
-        this.drawWalls();
-        this.drawFloors();
-        this.drawPlayer();
-        return;
-      }
+      // Playing
       const dt = Math.min(delta / 1000, 1 / 30);
       this.readInput();
       this.updatePhysics(dt);
@@ -3051,7 +3276,7 @@
       this.updateParticles(dt);
       this.updateGhost(dt);
       this.updateCamera(dt);
-      this.drawBackground();     // theme can drift as player climbs
+      this.drawBackground();
       this.drawWalls();
       this.drawFloors();
       this.drawGhost();
