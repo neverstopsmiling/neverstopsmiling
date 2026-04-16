@@ -67,6 +67,90 @@
       -webkit-tap-highlight-color: transparent;
       -webkit-touch-callout: none;
     }
+    /* --- DOM overlay buttons (reliable on iOS where Phaser zones fail) --- */
+    #dom-menu {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px 28px;
+      z-index: 30;
+      pointer-events: none;
+    }
+    #dom-menu button {
+      pointer-events: auto;
+      width: 72vw; max-width: 320px;
+      padding: 15px 8px;
+      border-radius: 12px;
+      font: 700 15px/1 "Courier New", monospace;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border: 3px solid #9cd9ff;
+      background: rgba(46,132,214,0.95);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(0,0,0,.5);
+    }
+    #dom-menu .btn-share { background: rgba(68,75,102,0.95); border-color: #ffdf3c; }
+    #dom-menu .btn-char  { background: rgba(26,26,36,0.95); border-color: #ffdf3c; }
+    #dom-menu .btn-tilt  { background: rgba(34,51,68,0.95); border-color: #9cd9ff; font-size:12px; padding:10px 8px; }
+    #start-btn {
+      position: fixed;
+      left: 50%; transform: translateX(-50%);
+      bottom: 28%;
+      width: 76vw; max-width: 340px;
+      padding: 18px 8px;
+      border-radius: 14px;
+      font: 700 20px/1 "Courier New", monospace;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      border: 4px solid #ffdf3c;
+      background: rgba(46,132,214,0.97);
+      color: #fff;
+      box-shadow: 0 6px 24px rgba(0,0,0,.6);
+      display: none;
+      z-index: 35;
+      animation: startPulse 1.2s ease-in-out infinite;
+    }
+    @keyframes startPulse {
+      0%,100% { opacity: 1; transform: translateX(-50%) scale(1); }
+      50%     { opacity: 0.82; transform: translateX(-50%) scale(1.04); }
+    }
+    #pause-btn {
+      position: fixed;
+      top: 10px; right: 10px;
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      border: 2px solid #9cd9ff;
+      background: rgba(0,0,0,0.55);
+      color: #9cd9ff;
+      font: 700 22px/1 "Courier New", monospace;
+      display: none;
+      z-index: 25;
+      padding: 0;
+    }
+    #countdown-overlay {
+      position: fixed; inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: rgba(0,0,0,0.55);
+      z-index: 40;
+      pointer-events: none;
+    }
+    #countdown-num {
+      font: 700 min(35vw, 200px)/1 "Courier New", monospace;
+      color: #ffdf3c;
+      text-shadow: 0 6px 20px #000;
+    }
+    #countdown-sub {
+      font: 700 min(5vw, 28px)/1 "Courier New", monospace;
+      color: #fff;
+      margin-top: 12px;
+      text-shadow: 0 3px 10px #000;
+    }
   </style>
 </head>
 <body>
@@ -74,12 +158,41 @@
   <button id="tilt-enable" type="button">Enable Tilt Controls</button>
   <div id="boot-msg">LOADING FROSTSPIRE</div>
 
+  <!-- DOM overlay buttons - guaranteed to receive taps on iOS -->
+  <div id="dom-menu">
+    <button id="btn-restart">RESTART</button>
+    <button id="btn-share" class="btn-share">SHARE</button>
+    <button id="btn-char" class="btn-char">CHARACTER</button>
+  </div>
+  <button id="start-btn">\u25B6  START GAME</button>
+  <button id="pause-btn">\u23F8</button>
+  <div id="countdown-overlay">
+    <div id="countdown-num">3</div>
+    <div id="countdown-sub">GET READY</div>
+  </div>
+
   <script>
-    // Register the service worker for offline / install-to-home-screen.
-    // Runs before Phaser loads so the worker can cache this pageload too.
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("sw.js").catch(() => {});
+        navigator.serviceWorker.register("sw.js").then((reg) => {
+          var showBanner = function(w) {
+            if (document.getElementById("sw-update-banner")) return;
+            var b = document.createElement("div");
+            b.id = "sw-update-banner";
+            b.textContent = "NEW VERSION \u2014 TAP TO RELOAD";
+            b.style.cssText = "position:fixed;left:50%;top:6px;transform:translateX(-50%);background:#ff7020;color:#fff;padding:8px 14px;border-radius:8px;font:700 11px/1 'Courier New',monospace;z-index:200;box-shadow:0 4px 14px rgba(0,0,0,.5);border:2px solid #fff;";
+            b.onclick = function(){ try{w.postMessage({type:"SKIP_WAITING"});}catch(e){} location.reload(); };
+            document.body.appendChild(b);
+          };
+          if (reg.waiting) showBanner(reg.waiting);
+          reg.addEventListener("updatefound", function() {
+            var nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener("statechange", function() {
+              if (nw.state === "installed" && navigator.serviceWorker.controller) showBanner(nw);
+            });
+          });
+        }).catch(function(){});
       });
     }
   </script>
@@ -465,6 +578,29 @@
       // Hide boot overlay now that Phaser is alive.
       const boot = document.getElementById("boot-msg");
       if (boot) boot.style.display = "none";
+
+      // ----- DOM button wiring (guaranteed iOS tap reliability) -----
+      // These call the EXISTING methods. Zero changes to game logic.
+      this.dom = {
+        menu:      document.getElementById("dom-menu"),
+        restart:   document.getElementById("btn-restart"),
+        share:     document.getElementById("btn-share"),
+        char:      document.getElementById("btn-char"),
+        startBtn:  document.getElementById("start-btn"),
+        pauseBtn:  document.getElementById("pause-btn"),
+        cdOverlay: document.getElementById("countdown-overlay"),
+        cdNum:     document.getElementById("countdown-num"),
+        cdSub:     document.getElementById("countdown-sub"),
+        tiltBtn:   document.getElementById("tilt-enable"),
+      };
+      this.dom.restart.addEventListener("click",  () => this.restartRun());
+      this.dom.share.addEventListener("click",    () => this.shareScore());
+      this.dom.char.addEventListener("click",     () => this.openCharacterSelect());
+      this.dom.startBtn.addEventListener("click", () => this.startFromTitle());
+      this.dom.pauseBtn.addEventListener("click", () => this.togglePause());
+
+      // Show the START button now (title is already up).
+      this.dom.startBtn.style.display = "block";
     }
 
     onResize(gameSize) {
@@ -2414,7 +2550,14 @@
 
     triggerGameOver() {
       this.gameOver = true;
+      this.state = "gameover";
       this.audio.gameOver();
+      // Show reliable DOM menu buttons; hide in-game pause + tilt.
+      if (this.dom) {
+        this.dom.menu.style.display = "flex";
+        this.dom.pauseBtn.style.display = "none";
+        if (this.dom.tiltBtn) this.dom.tiltBtn.style.display = "none";
+      }
       // Persist all three bests to localStorage.
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
@@ -2701,6 +2844,15 @@
       }
 
       this.resetRun();
+      this.state = "playing";
+      // DOM state: hide menu, show pause button.
+      if (this.dom) {
+        this.dom.menu.style.display = "none";
+        this.dom.startBtn.style.display = "none";
+        this.dom.pauseBtn.style.display = "block";
+        this.dom.cdOverlay.style.display = "none";
+      }
+      if (this.hud) this.hud.container.setVisible(true);
       this._restarting = false;
     }
 
@@ -2910,13 +3062,11 @@
       if (this._titleTween) { this._titleTween.stop(); this._titleTween = null; }
       if (this.titleOverlay) { this.titleOverlay.destroy(); this.titleOverlay = null; }
       this._titlePreview = null;
-      this.state = "playing";
-      // Fresh run (clears any state from the pre-title resetRun())
+      // restartRun sets state="playing" and hides/shows DOM buttons.
       this.restartRun();
-      this.state = "playing";
       this.runStartTime = this.time.now;
       this.hintUntil = this.time.now + 5500;
-      if (this.hud) this.hud.container.setVisible(true);
+      if (this.audio) this.audio.init();
     }
 
     // ---------------------------------------------------------------
@@ -2928,6 +3078,7 @@
     }
     showPauseMenu() {
       this.state = "paused";
+      if (this.dom) this.dom.pauseBtn.style.display = "none";
       if (this.pauseOverlay) this.pauseOverlay.destroy();
       const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2300);
       const bg = this.add.graphics();
@@ -2972,18 +3123,66 @@
         y += btnH + gap;
       };
 
-      makeBtn("RESUME",    () => this.hidePauseMenu(),                  0x2e84d6, 0x9cd9ff);
+      makeBtn("RESUME",    () => this.requestResume(),                   0x2e84d6, 0x9cd9ff);
       makeBtn("CHARACTER", () => this.openCharacterSelect(),            0x1a1a24, 0xffdf3c);
       makeBtn(this.audio.muted ? "UNMUTE" : "MUTE",
         () => { this.audio.toggleMute(); this.showPauseMenu(); },       0x223344, 0x9cd9ff);
       makeBtn("RESTART",   () => { this.hidePauseMenu(); this.restartRun(); }, 0x664434, 0xffdf3c);
-      makeBtn("HOME",      () => { this.hidePauseMenu(true); this.state = "title"; this.showTitleScreen(); }, 0x444b66, 0xff9a9a);
+      makeBtn("HOME",      () => {
+        this.hidePauseMenu(true);
+        this.state = "title";
+        this.showTitleScreen();
+        if (this.dom) { this.dom.startBtn.style.display = "block"; this.dom.pauseBtn.style.display = "none"; }
+      }, 0x444b66, 0xff9a9a);
 
       this.pauseOverlay = g;
     }
     hidePauseMenu(keepState) {
       if (this.pauseOverlay) { this.pauseOverlay.destroy(); this.pauseOverlay = null; }
-      if (!keepState) this.state = "playing";
+      if (!keepState) {
+        this.state = "playing";
+        if (this.dom) this.dom.pauseBtn.style.display = "block";
+      }
+    }
+
+    // 3-second countdown before resume
+    requestResume() {
+      this.hidePauseMenu(true); // keep state not-playing
+      this.state = "countdown";
+      // Flush stale input
+      this.jumpBufferUntil = 0;
+      this.touchLeft = this.touchRight = false;
+      // Show DOM countdown overlay
+      if (this.dom) {
+        this.dom.cdOverlay.style.display = "flex";
+        this.dom.cdNum.textContent = "3";
+        this.dom.cdSub.textContent = "GET READY";
+      }
+      const beep = (f) => {
+        if (this.audio) this.audio._blip({ type: "triangle", f0: f, dur: 0.12, vol: 0.22 });
+      };
+      beep(660);
+      const tick = (n) => {
+        if (this.state !== "countdown") return;
+        if (this.dom) this.dom.cdNum.textContent = String(n);
+      };
+      this.time.delayedCall(1000, () => { if (this.state === "countdown") { tick(2); beep(784); } });
+      this.time.delayedCall(2000, () => { if (this.state === "countdown") { tick(1); beep(880); } });
+      this.time.delayedCall(3000, () => {
+        if (this.state !== "countdown") return;
+        if (this.dom) {
+          this.dom.cdNum.textContent = "GO!";
+          this.dom.cdSub.textContent = "";
+        }
+        beep(1320);
+        this.jumpBufferUntil = 0;
+        this.touchLeft = this.touchRight = false;
+        this.time.delayedCall(400, () => {
+          if (this.dom) this.dom.cdOverlay.style.display = "none";
+          this.state = "playing";
+          if (this.dom) this.dom.pauseBtn.style.display = "block";
+        });
+      });
     }
 
     // ---------------------------------------------------------------
@@ -3027,8 +3226,8 @@
         this.animateTitleScreen();
         return;
       }
-      // Paused: freeze world, keep overlay responsive.
-      if (this.state === "paused") {
+      // Paused / countdown / gameover: freeze world, keep it rendered.
+      if (this.state === "paused" || this.state === "countdown" || this.state === "gameover") {
         this.drawBackground();
         this.drawWalls();
         this.drawFloors();
@@ -3036,12 +3235,6 @@
         this.drawParticles();
         this.drawPlayer();
         this.drawHUD();
-        return;
-      }
-      if (this.gameOver) {
-        this.drawWalls();
-        this.drawFloors();
-        this.drawPlayer();
         return;
       }
       const dt = Math.min(delta / 1000, 1 / 30);

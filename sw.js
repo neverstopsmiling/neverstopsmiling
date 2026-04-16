@@ -1,5 +1,8 @@
-/* Frostspire service worker - offline-first shell cache. */
-const CACHE = "frostspire-v1";
+/* Frostspire service worker v3.
+ * Network-first for HTML so new deploys reach users on the next reload.
+ * Cache-first for static assets (icon, manifest, Phaser CDN).
+ */
+const CACHE = "frostspire-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -19,22 +22,46 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
 
-  // Cache-first for shell + CDN, falling back to network; update cache on success.
+  const url = new URL(req.url);
+  const isHTML =
+    req.mode === "navigate" ||
+    req.destination === "document" ||
+    url.pathname.endsWith("/") ||
+    url.pathname.endsWith(".html");
+
+  if (isHTML) {
+    // Network-first for HTML so updates reach users immediately.
+    event.respondWith(
+      fetch(req).then((resp) => {
+        if (resp && resp.status === 200) {
+          const clone = resp.clone();
+          caches.open(CACHE).then((c) => c.put(req, clone)).catch(() => {});
+        }
+        return resp;
+      }).catch(() => caches.match(req).then((c) => c || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  // Cache-first for static assets.
   event.respondWith(
     caches.match(req).then((cached) => {
       const fetchPromise = fetch(req).then((resp) => {
         if (resp && resp.status === 200 && (resp.type === "basic" || resp.type === "cors")) {
           const clone = resp.clone();
-          caches.open(CACHE).then((cache) => cache.put(req, clone)).catch(() => {});
+          caches.open(CACHE).then((c) => c.put(req, clone)).catch(() => {});
         }
         return resp;
       }).catch(() => cached);
