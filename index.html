@@ -251,6 +251,8 @@
     { id: "trex",    name: "T-REX",          color: 0xe07020, drawFn: "drawCharTrex"    },
     { id: "yeti",    name: "YETI",           color: 0xe4eef4, drawFn: "drawCharYeti"    },
     { id: "robot",   name: "ROBOT",          color: 0xb0b4bc, drawFn: "drawCharRobot"   },
+    { id: "skater",  name: "SKATER",         color: 0xff5050, drawFn: "drawCharSkater"  },
+    { id: "surfer",  name: "SURFER",         color: 0x3ad0e8, drawFn: "drawCharSurfer"  },
   ];
 
   function levelIndexFor(n) {
@@ -1706,6 +1708,214 @@
       // Visor glint
       g.fillStyle(0xffffff, 1);
       g.fillRect(bx + w - 7, by + 8, 2, 1);
+    }
+
+    // ---- Skater: backwards-cap teen riding a skateboard ----
+    drawCharSkater(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+
+      // SKATEBOARD deck beneath the feet.
+      // Width spans a bit past the body so the board reads clearly.
+      const boardW = w + 6;
+      const boardH = 3;
+      const boardX = -boardW / 2;
+      const boardY = by + h - 2;
+      g.fillStyle(0xff5050, 1);           // deck top (red)
+      g.fillRect(boardX, boardY, boardW, boardH);
+      g.fillStyle(0x7a1a1a, 1);           // deck edge shadow
+      g.fillRect(boardX, boardY + boardH, boardW, 1);
+
+      // Wheels - two circles near each end. Spin visually via a crosshair.
+      g.fillStyle(0xffdf3c, 1);
+      const wy = boardY + boardH + 2;
+      const wheels = [boardX + 2, boardX + boardW - 6];
+      for (const wx of wheels) {
+        g.fillRect(wx, wy, 4, 4);
+        // Spinning cross - alternates with runPhase
+        g.fillStyle(0x1a1a1a, 0.8);
+        const spoke = speedFrac > 0.05 ? Math.sin(runPhase * 3) : 0;
+        if (spoke > 0) g.fillRect(wx + 1, wy, 2, 4);
+        else           g.fillRect(wx, wy + 1, 4, 2);
+        g.fillStyle(0xffdf3c, 1);
+      }
+
+      // LEGS - slightly bent knees
+      const legW = 4;
+      const kneeBend = airborne ? 4 : (speedFrac > 0.05 ? 2 : 1);
+      const legH = h * 0.28 - kneeBend;
+      const legY = boardY - legH;
+      const legSpread = w * 0.20;
+      const legLX = -legSpread - legW / 2;
+      const legRX =  legSpread - legW / 2;
+      g.fillStyle(0x2040a0, 1);     // blue jeans
+      if (airborne) {
+        g.fillRect(legLX, legY - 2, legW, legH);
+        g.fillRect(legRX, legY - 2, legW, legH);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 1.5 : 0;
+        g.fillRect(legLX, legY - s, legW, legH);
+        g.fillRect(legRX, legY + s, legW, legH);
+      }
+
+      // Hoodie body
+      const bodyH = h * 0.42;
+      const bodyY = by + h * 0.26;
+      g.fillStyle(0x555a66, 1);
+      g.fillRect(bx, bodyY, w, bodyH);
+      // Drawstring
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + w / 2 - 1, bodyY, 2, 6);
+      // Hoodie pouch pocket
+      g.fillStyle(0x404550, 1);
+      g.fillRect(bx + 3, bodyY + bodyH - 6, w - 6, 4);
+
+      // Arms - swing / counterbalance
+      g.fillStyle(0x555a66, 1);
+      if (airborne) {
+        // Arms out sideways for balance
+        g.fillRect(bx - 4, bodyY + 4, 4, bodyH * 0.65);
+        g.fillRect(bx + w, bodyY + 4, 4, bodyH * 0.65);
+      } else {
+        const armSwing = speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 2 : 0;
+        g.fillRect(bx - 2, bodyY + armSwing, 3, bodyH * 0.8);
+        g.fillRect(bx + w - 1, bodyY - armSwing, 3, bodyH * 0.8);
+      }
+
+      // Hands (lighter for contrast)
+      g.fillStyle(0xf2d1a8, 1);
+      if (airborne) {
+        g.fillRect(bx - 4, bodyY + 4 + bodyH * 0.60, 4, 3);
+        g.fillRect(bx + w, bodyY + 4 + bodyH * 0.60, 4, 3);
+      }
+
+      // Head
+      const headW = w - 4, headX = bx + 2;
+      const headY = by;
+      g.fillStyle(0xf2d1a8, 1);
+      g.fillRect(headX, headY + 4, headW, h * 0.26 - 4);
+
+      // Backwards cap - brim on the BACK side
+      g.fillStyle(0xff5050, 1);
+      g.fillRect(headX - 1, headY, headW + 2, 6);  // cap body
+      g.fillRect(headX - 4, headY + 3, 5, 3);      // brim (back = -x)
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(headX + 1, headY + 2, 4, 1);      // cap stripe
+
+      // Eyes
+      g.fillStyle(0x000000, 1);
+      g.fillRect(headX + headW - 7, headY + 8, 2, 2);
+      g.fillRect(headX + headW - 3, headY + 8, 2, 2);
+      // Smirk
+      g.fillRect(headX + headW - 7, headY + 12, 4, 1);
+    }
+
+    // ---- Surfer: hanging-ten character riding a surfboard ----
+    drawCharSurfer(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+
+      // SURFBOARD - longer than skateboard, pointed nose & tail.
+      const boardW = w + 16;
+      const boardH = 3;
+      const boardX = -boardW / 2;
+      const boardY = by + h - 2;
+      // Pointed nose (forward = +x after scaleX)
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(boardX + 2, boardY, boardW - 4, boardH);
+      g.fillTriangle(boardX + boardW - 4, boardY,
+                     boardX + boardW, boardY + boardH / 2,
+                     boardX + boardW - 4, boardY + boardH);
+      g.fillTriangle(boardX + 4, boardY,
+                     boardX,     boardY + boardH / 2,
+                     boardX + 4, boardY + boardH);
+      // Coloured stripe down the middle
+      g.fillStyle(0x3ad0e8, 1);
+      g.fillRect(boardX + 4, boardY + 1, boardW - 8, 1);
+      // Fin (under the back of the board)
+      g.fillStyle(0x3ad0e8, 1);
+      g.fillRect(boardX + 4, boardY + boardH, 2, 4);
+      // Water spray under board when running
+      if (!airborne && speedFrac > 0.2) {
+        g.fillStyle(0xb8f0ff, 0.85);
+        const f1 = (now * 0.03) % 8;
+        g.fillRect(boardX - 4, boardY + boardH + 1 + (f1 % 2), 4, 1);
+        g.fillRect(boardX + boardW, boardY + boardH + 1 + (f1 % 2), 4, 1);
+      }
+
+      // LEGS (bare, skin-toned) with surfer's slight bend
+      const legW = 4;
+      const legH = h * 0.28;
+      const legY = boardY - legH;
+      const legSpread = w * 0.22;
+      const legLX = -legSpread - legW / 2;
+      const legRX =  legSpread - legW / 2;
+      g.fillStyle(0xe8b88a, 1);      // tanned skin
+      if (airborne) {
+        // Crouched surf stance
+        g.fillRect(legLX, legY, legW, legH - 4);
+        g.fillRect(legRX, legY, legW, legH - 4);
+      } else {
+        // Minor weight shift
+        const s = speedFrac > 0.05 ? Math.sin(runPhase * 0.7) * 1.2 : 0;
+        g.fillRect(legLX, legY - s, legW, legH);
+        g.fillRect(legRX, legY + s, legW, legH);
+      }
+      // Board shorts (teal) - shorter than legs
+      g.fillStyle(0x1a3a6a, 1);
+      const shortsY = legY;
+      g.fillRect(legLX - 1, shortsY, legW + 2, 5);
+      g.fillRect(legRX - 1, shortsY, legW + 2, 5);
+      // Shorts waistband
+      g.fillStyle(0xffdf3c, 1);
+      g.fillRect(legLX - 1, shortsY + 4, legW + 2, 1);
+      g.fillRect(legRX - 1, shortsY + 4, legW + 2, 1);
+
+      // Tank top body (bright orange)
+      const bodyH = h * 0.32;
+      const bodyY = by + h * 0.32;
+      g.fillStyle(0xff7a2a, 1);
+      g.fillRect(bx, bodyY, w, bodyH);
+      // Straps (lighter)
+      g.fillStyle(0xffc070, 1);
+      g.fillRect(bx + 2, bodyY, 3, 3);
+      g.fillRect(bx + w - 5, bodyY, 3, 3);
+
+      // Arms outstretched for balance
+      g.fillStyle(0xe8b88a, 1);
+      if (airborne) {
+        // Classic surf arm pose
+        g.fillRect(bx - 6, bodyY + 2, 6, 4);
+        g.fillRect(bx + w, bodyY - 3, 6, 4);
+      } else {
+        const armSwing = speedFrac > 0.05 ? Math.sin(now * 0.004) * 2 : 0;
+        g.fillRect(bx - 5, bodyY + 4 + armSwing, 5, 4);
+        g.fillRect(bx + w, bodyY + 4 - armSwing, 5, 4);
+      }
+
+      // Head
+      const headW = w - 4, headX = bx + 2;
+      const headY = by + 1;
+      g.fillStyle(0xe8b88a, 1);
+      g.fillRect(headX, headY + 4, headW, h * 0.26 - 4);
+
+      // Flowing surfer hair - streams backward (-x local)
+      g.fillStyle(0xffcc40, 1);
+      g.fillRect(headX, headY, headW, 5);
+      g.fillRect(headX - 3, headY + 2, 4, 6);
+      g.fillRect(headX - 5, headY + 5, 3, 5);
+      // Wind-blown tips
+      const windT = (now * 0.005) % 6;
+      g.fillRect(headX - 7, headY + 7 + (windT % 2), 2, 2);
+
+      // Eyes (shades)
+      g.fillStyle(0x1a1a1a, 1);
+      g.fillRect(headX + 3, headY + 8, headW - 6, 3);
+      g.fillStyle(0x6efff0, 0.9);
+      g.fillRect(headX + headW - 6, headY + 9, 3, 1);   // lens reflection
+      // Smile
+      g.fillStyle(0x000000, 1);
+      g.fillRect(headX + headW - 7, headY + 13, 4, 1);
     }
 
     // ---------------------------------------------------------------
