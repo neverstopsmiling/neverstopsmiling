@@ -67,90 +67,6 @@
       -webkit-tap-highlight-color: transparent;
       -webkit-touch-callout: none;
     }
-    /* --- DOM overlay buttons (reliable on iOS where Phaser zones fail) --- */
-    #dom-menu {
-      position: fixed;
-      left: 0; right: 0; bottom: 0;
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      padding: 0 16px 28px;
-      z-index: 30;
-      pointer-events: none;
-    }
-    #dom-menu button {
-      pointer-events: auto;
-      width: 72vw; max-width: 320px;
-      padding: 15px 8px;
-      border-radius: 12px;
-      font: 700 15px/1 "Courier New", monospace;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      border: 3px solid #9cd9ff;
-      background: rgba(46,132,214,0.95);
-      color: #fff;
-      box-shadow: 0 4px 14px rgba(0,0,0,.5);
-    }
-    #dom-menu .btn-share { background: rgba(68,75,102,0.95); border-color: #ffdf3c; }
-    #dom-menu .btn-char  { background: rgba(26,26,36,0.95); border-color: #ffdf3c; }
-    #dom-menu .btn-tilt  { background: rgba(34,51,68,0.95); border-color: #9cd9ff; font-size:12px; padding:10px 8px; }
-    #start-btn {
-      position: fixed;
-      left: 50%; transform: translateX(-50%);
-      bottom: 28%;
-      width: 76vw; max-width: 340px;
-      padding: 18px 8px;
-      border-radius: 14px;
-      font: 700 20px/1 "Courier New", monospace;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      border: 4px solid #ffdf3c;
-      background: rgba(46,132,214,0.97);
-      color: #fff;
-      box-shadow: 0 6px 24px rgba(0,0,0,.6);
-      display: none;
-      z-index: 35;
-      animation: startPulse 1.2s ease-in-out infinite;
-    }
-    @keyframes startPulse {
-      0%,100% { opacity: 1; transform: translateX(-50%) scale(1); }
-      50%     { opacity: 0.82; transform: translateX(-50%) scale(1.04); }
-    }
-    #pause-btn {
-      position: fixed;
-      top: 10px; right: 10px;
-      width: 44px; height: 44px;
-      border-radius: 10px;
-      border: 2px solid #9cd9ff;
-      background: rgba(0,0,0,0.55);
-      color: #9cd9ff;
-      font: 700 22px/1 "Courier New", monospace;
-      display: none;
-      z-index: 25;
-      padding: 0;
-    }
-    #countdown-overlay {
-      position: fixed; inset: 0;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      background: rgba(0,0,0,0.55);
-      z-index: 40;
-      pointer-events: none;
-    }
-    #countdown-num {
-      font: 700 min(35vw, 200px)/1 "Courier New", monospace;
-      color: #ffdf3c;
-      text-shadow: 0 6px 20px #000;
-    }
-    #countdown-sub {
-      font: 700 min(5vw, 28px)/1 "Courier New", monospace;
-      color: #fff;
-      margin-top: 12px;
-      text-shadow: 0 3px 10px #000;
-    }
   </style>
 </head>
 <body>
@@ -158,41 +74,12 @@
   <button id="tilt-enable" type="button">Enable Tilt Controls</button>
   <div id="boot-msg">LOADING FROSTSPIRE</div>
 
-  <!-- DOM overlay buttons - guaranteed to receive taps on iOS -->
-  <div id="dom-menu">
-    <button id="btn-restart">RESTART</button>
-    <button id="btn-share" class="btn-share">SHARE</button>
-    <button id="btn-char" class="btn-char">CHARACTER</button>
-  </div>
-  <button id="start-btn">\u25B6  START GAME</button>
-  <button id="pause-btn">\u23F8</button>
-  <div id="countdown-overlay">
-    <div id="countdown-num">3</div>
-    <div id="countdown-sub">GET READY</div>
-  </div>
-
   <script>
+    // Register the service worker for offline / install-to-home-screen.
+    // Runs before Phaser loads so the worker can cache this pageload too.
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("sw.js").then((reg) => {
-          var showBanner = function(w) {
-            if (document.getElementById("sw-update-banner")) return;
-            var b = document.createElement("div");
-            b.id = "sw-update-banner";
-            b.textContent = "NEW VERSION \u2014 TAP TO RELOAD";
-            b.style.cssText = "position:fixed;left:50%;top:6px;transform:translateX(-50%);background:#ff7020;color:#fff;padding:8px 14px;border-radius:8px;font:700 11px/1 'Courier New',monospace;z-index:200;box-shadow:0 4px 14px rgba(0,0,0,.5);border:2px solid #fff;";
-            b.onclick = function(){ try{w.postMessage({type:"SKIP_WAITING"});}catch(e){} location.reload(); };
-            document.body.appendChild(b);
-          };
-          if (reg.waiting) showBanner(reg.waiting);
-          reg.addEventListener("updatefound", function() {
-            var nw = reg.installing;
-            if (!nw) return;
-            nw.addEventListener("statechange", function() {
-              if (nw.state === "installed" && navigator.serviceWorker.controller) showBanner(nw);
-            });
-          });
-        }).catch(function(){});
+        navigator.serviceWorker.register("sw.js").catch(() => {});
       });
     }
   </script>
@@ -330,8 +217,6 @@
     { id: "trex",    name: "T-REX",          color: 0xe07020, drawFn: "drawCharTrex"    },
     { id: "yeti",    name: "YETI",           color: 0xe4eef4, drawFn: "drawCharYeti"    },
     { id: "robot",   name: "ROBOT",          color: 0xb0b4bc, drawFn: "drawCharRobot"   },
-    { id: "skater",  name: "SKATER",         color: 0xff5050, drawFn: "drawCharSkater"  },
-    { id: "surfer",  name: "SURFER",         color: 0x3ad0e8, drawFn: "drawCharSurfer"  },
   ];
 
   function levelIndexFor(n) {
@@ -580,29 +465,6 @@
       // Hide boot overlay now that Phaser is alive.
       const boot = document.getElementById("boot-msg");
       if (boot) boot.style.display = "none";
-
-      // ----- DOM button wiring (guaranteed iOS tap reliability) -----
-      // These call the EXISTING methods. Zero changes to game logic.
-      this.dom = {
-        menu:      document.getElementById("dom-menu"),
-        restart:   document.getElementById("btn-restart"),
-        share:     document.getElementById("btn-share"),
-        char:      document.getElementById("btn-char"),
-        startBtn:  document.getElementById("start-btn"),
-        pauseBtn:  document.getElementById("pause-btn"),
-        cdOverlay: document.getElementById("countdown-overlay"),
-        cdNum:     document.getElementById("countdown-num"),
-        cdSub:     document.getElementById("countdown-sub"),
-        tiltBtn:   document.getElementById("tilt-enable"),
-      };
-      this.dom.restart.addEventListener("click",  () => this.restartRun());
-      this.dom.share.addEventListener("click",    () => this.shareScore());
-      this.dom.char.addEventListener("click",     () => this.openCharacterSelect());
-      this.dom.startBtn.addEventListener("click", () => this.startFromTitle());
-      this.dom.pauseBtn.addEventListener("click", () => this.togglePause());
-
-      // Show the START button now (title is already up).
-      this.dom.startBtn.style.display = "block";
     }
 
     onResize(gameSize) {
@@ -634,125 +496,9 @@
         g.fillRect(0, (this.H * i) / steps, this.W, this.H / steps + 1);
       }
 
-      // Far parallax silhouette (Phase 17 addition)
-      this._farSilhouette(g, theme);
-
       // Per-theme decorative accent layer (snow, icicles, torches, etc.)
       const fn = theme.accentFn && this[theme.accentFn];
       if (fn) fn.call(this, g, theme);
-    }
-
-    _farSilhouette(g, theme) {
-      const n = this.player ? this.player.highestFloor : 0;
-      const key = LEVELS[levelIndexFor(n)].themeKey;
-      const cam = (this.cameraY || 0) * 0.15;
-      const floor = this.H - Math.min(this.H * 0.28, 160);
-      const silCol = lerpColor(theme.bg2, theme.wall, 0.5);
-      g.fillStyle(silCol, 0.85);
-      switch (key) {
-        case "snow": {
-          const step = 40;
-          for (let x = -(cam % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const h = 40 + (Math.abs(Math.sin(s * 2.3)) * 60) | 0;
-            g.fillTriangle(x, floor, x + step / 2, floor - h, x + step, floor);
-          }
-          g.fillStyle(0xffffff, 0.80);
-          for (let x = -(cam % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const h = 40 + (Math.abs(Math.sin(s * 2.3)) * 60) | 0;
-            g.fillTriangle(x + step / 2 - 6, floor - h + 12, x + step / 2 + 6, floor - h + 12, x + step / 2, floor - h);
-          }
-          break;
-        }
-        case "cave": {
-          const step = 28;
-          for (let x = -(cam % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const h = 20 + (Math.abs(Math.sin(s * 3.1)) * 60) | 0;
-            g.fillTriangle(x, this.H, x + step / 2, this.H - h, x + step, this.H);
-          }
-          break;
-        }
-        case "stone": {
-          const step = 22;
-          const offset = (cam * 0.6) % step;
-          g.fillRect(0, floor, this.W, this.H - floor);
-          for (let x = -offset - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const up = (s % 2 === 0) ? 14 : 0;
-            g.fillRect(x, floor - 24 - up, step - 2, 24 + up);
-          }
-          break;
-        }
-        case "iron": {
-          const step = 100;
-          g.fillStyle(silCol, 0.70);
-          for (let x = -((cam * 0.5) % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const r = 25 + (Math.abs(Math.sin(s * 1.7)) * 15) | 0;
-            const cx = x + step / 2, cy = floor - 10;
-            g.fillCircle(cx, cy, r);
-          }
-          break;
-        }
-        case "lava": {
-          const step = 120;
-          for (let x = -((cam * 0.5) % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const h = 80 + (Math.abs(Math.sin(s * 2.7)) * 60) | 0;
-            const px = x + step / 2;
-            g.fillStyle(0x200500, 0.85);
-            g.fillTriangle(px - 60, floor, px, floor - h, px + 60, floor);
-            g.fillStyle(0xff5010, 0.55);
-            g.fillTriangle(px - 8, floor - h + 4, px, floor - h, px + 8, floor - h + 4);
-            g.fillStyle(silCol, 0.85);
-          }
-          break;
-        }
-        case "forest": {
-          const step = 28;
-          for (let x = -((cam * 0.5) % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const h = 50 + (Math.abs(Math.sin(s * 2.1)) * 50) | 0;
-            const px = x + step / 2;
-            g.fillStyle(0x0a2210, 0.80);
-            g.fillTriangle(px - step * 0.4, floor, px, floor - h, px + step * 0.4, floor);
-            g.fillStyle(silCol, 0.85);
-          }
-          break;
-        }
-        case "storm": {
-          g.fillStyle(0x40308a, 0.55);
-          const step = 180;
-          for (let x = -((cam * 0.5) % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const h = 30 + (Math.abs(Math.sin(s * 1.9)) * 20) | 0;
-            const px = x + step / 2;
-            g.fillRect(px - 80, floor - 20 - h, 160, 18 + h);
-            g.fillRect(px - 60, floor - 34 - h, 120, 14);
-          }
-          break;
-        }
-        case "space": {
-          const step = 200;
-          for (let x = -((cam * 0.4) % step) - step; x < this.W + step; x += step) {
-            const s = Math.floor((x + cam) / step);
-            const r = 18 + (Math.abs(Math.sin(s * 1.4)) * 26) | 0;
-            const cx = x + step / 2;
-            const cy = 120 + (Math.abs(Math.cos(s * 2.1)) * (this.H - 260)) | 0;
-            g.fillStyle(lerpColor(theme.bg2, theme.accent, 0.35), 0.75);
-            g.fillCircle(cx, cy, r);
-            g.fillStyle(0x000000, 0.35);
-            g.fillCircle(cx + r * 0.35, cy, r * 0.9);
-            if (s % 3 === 0) {
-              g.fillStyle(theme.accent, 0.45);
-              g.fillRect(cx - r - 8, cy - 1, 2 * r + 16, 2);
-            }
-          }
-          break;
-        }
-      }
     }
 
     // -------------- Per-theme accent renderers --------------
@@ -1732,133 +1478,6 @@
       g.fillRect(bx + w - 7, by + 8, 2, 1);
     }
 
-    // ---- Skater: backwards-cap teen riding a skateboard ----
-    drawCharSkater(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const bx = -w / 2, by = -h / 2;
-      // Skateboard deck under feet
-      const boardW = w + 6, boardH = 3;
-      const boardX = -boardW / 2, boardY = by + h - 2;
-      g.fillStyle(0xff5050, 1);
-      g.fillRect(boardX, boardY, boardW, boardH);
-      g.fillStyle(0x7a1a1a, 1);
-      g.fillRect(boardX, boardY + boardH, boardW, 1);
-      // Wheels with spin cross
-      g.fillStyle(0xffdf3c, 1);
-      const wy = boardY + boardH + 2;
-      [boardX + 2, boardX + boardW - 6].forEach((wx) => {
-        g.fillRect(wx, wy, 4, 4);
-        g.fillStyle(0x1a1a1a, 0.7);
-        if (speedFrac > 0.05 && Math.sin(runPhase * 3) > 0) g.fillRect(wx + 1, wy, 2, 4);
-        else g.fillRect(wx, wy + 1, 4, 2);
-        g.fillStyle(0xffdf3c, 1);
-      });
-      // Legs
-      const legW = 4, legH = h * 0.28 - (airborne ? 4 : 1);
-      const legY = boardY - legH;
-      g.fillStyle(0x2040a0, 1);
-      const s = !airborne && speedFrac > 0.05 ? Math.sin(runPhase) * 1.5 : 0;
-      g.fillRect(-w * 0.2 - legW / 2, legY - s, legW, legH);
-      g.fillRect( w * 0.2 - legW / 2, legY + s, legW, legH);
-      // Hoodie body
-      const bodyH = h * 0.42, bodyY = by + h * 0.26;
-      g.fillStyle(0x555a66, 1);
-      g.fillRect(bx, bodyY, w, bodyH);
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(bx + w / 2 - 1, bodyY, 2, 6);
-      g.fillStyle(0x404550, 1);
-      g.fillRect(bx + 3, bodyY + bodyH - 6, w - 6, 4);
-      // Arms
-      g.fillStyle(0x555a66, 1);
-      if (airborne) {
-        g.fillRect(bx - 4, bodyY + 4, 4, bodyH * 0.65);
-        g.fillRect(bx + w, bodyY + 4, 4, bodyH * 0.65);
-      } else {
-        const as = speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 2 : 0;
-        g.fillRect(bx - 2, bodyY + as, 3, bodyH * 0.8);
-        g.fillRect(bx + w - 1, bodyY - as, 3, bodyH * 0.8);
-      }
-      // Head
-      const headW = w - 4, headX = bx + 2, headY = by;
-      g.fillStyle(0xf2d1a8, 1);
-      g.fillRect(headX, headY + 4, headW, h * 0.26 - 4);
-      // Backwards cap
-      g.fillStyle(0xff5050, 1);
-      g.fillRect(headX - 1, headY, headW + 2, 6);
-      g.fillRect(headX - 4, headY + 3, 5, 3);
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(headX + 1, headY + 2, 4, 1);
-      // Eyes + smirk
-      g.fillStyle(0x000000, 1);
-      g.fillRect(headX + headW - 7, headY + 8, 2, 2);
-      g.fillRect(headX + headW - 3, headY + 8, 2, 2);
-      g.fillRect(headX + headW - 7, headY + 12, 4, 1);
-    }
-
-    // ---- Surfer: hanging-ten on a surfboard ----
-    drawCharSurfer(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const bx = -w / 2, by = -h / 2;
-      // Surfboard
-      const boardW = w + 16, boardH = 3, boardX = -boardW / 2, boardY = by + h - 2;
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(boardX + 2, boardY, boardW - 4, boardH);
-      g.fillStyle(0x3ad0e8, 1);
-      g.fillRect(boardX + 4, boardY + 1, boardW - 8, 1);
-      // Fin
-      g.fillRect(boardX + 4, boardY + boardH, 2, 4);
-      // Spray when running
-      if (!airborne && speedFrac > 0.2) {
-        g.fillStyle(0xb8f0ff, 0.80);
-        g.fillRect(boardX - 4, boardY + boardH + 1, 4, 1);
-        g.fillRect(boardX + boardW, boardY + boardH + 1, 4, 1);
-      }
-      // Legs
-      const legW = 4, legH = h * 0.28, legY = boardY - legH;
-      g.fillStyle(0xe8b88a, 1);
-      const s = !airborne && speedFrac > 0.05 ? Math.sin(runPhase * 0.7) * 1.2 : 0;
-      g.fillRect(-w * 0.22 - legW / 2, legY - s, legW, airborne ? legH - 4 : legH);
-      g.fillRect( w * 0.22 - legW / 2, legY + s, legW, airborne ? legH - 4 : legH);
-      // Board shorts
-      g.fillStyle(0x1a3a6a, 1);
-      g.fillRect(-w * 0.22 - legW / 2 - 1, legY, legW + 2, 5);
-      g.fillRect( w * 0.22 - legW / 2 - 1, legY, legW + 2, 5);
-      // Tank top
-      const bodyH = h * 0.32, bodyY = by + h * 0.32;
-      g.fillStyle(0xff7a2a, 1);
-      g.fillRect(bx, bodyY, w, bodyH);
-      g.fillStyle(0xffc070, 1);
-      g.fillRect(bx + 2, bodyY, 3, 3);
-      g.fillRect(bx + w - 5, bodyY, 3, 3);
-      // Arms out for balance
-      g.fillStyle(0xe8b88a, 1);
-      if (airborne) {
-        g.fillRect(bx - 6, bodyY + 2, 6, 4);
-        g.fillRect(bx + w, bodyY - 3, 6, 4);
-      } else {
-        const as = speedFrac > 0.05 ? Math.sin(now * 0.004) * 2 : 0;
-        g.fillRect(bx - 5, bodyY + 4 + as, 5, 4);
-        g.fillRect(bx + w, bodyY + 4 - as, 5, 4);
-      }
-      // Head
-      const headW = w - 4, headX = bx + 2, headY = by + 1;
-      g.fillStyle(0xe8b88a, 1);
-      g.fillRect(headX, headY + 4, headW, h * 0.26 - 4);
-      // Flowing hair
-      g.fillStyle(0xffcc40, 1);
-      g.fillRect(headX, headY, headW, 5);
-      g.fillRect(headX - 3, headY + 2, 4, 6);
-      g.fillRect(headX - 5, headY + 5, 3, 5);
-      // Shades
-      g.fillStyle(0x1a1a1a, 1);
-      g.fillRect(headX + 3, headY + 8, headW - 6, 3);
-      g.fillStyle(0x6efff0, 0.85);
-      g.fillRect(headX + headW - 6, headY + 9, 3, 1);
-      // Smile
-      g.fillStyle(0x000000, 1);
-      g.fillRect(headX + headW - 7, headY + 13, 4, 1);
-    }
-
     // ---------------------------------------------------------------
     // Physics
     // ---------------------------------------------------------------
@@ -2795,14 +2414,7 @@
 
     triggerGameOver() {
       this.gameOver = true;
-      this.state = "gameover";
       this.audio.gameOver();
-      // Show reliable DOM menu buttons; hide in-game pause + tilt.
-      if (this.dom) {
-        this.dom.menu.style.display = "flex";
-        this.dom.pauseBtn.style.display = "none";
-        if (this.dom.tiltBtn) this.dom.tiltBtn.style.display = "none";
-      }
       // Persist all three bests to localStorage.
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
@@ -3089,15 +2701,6 @@
       }
 
       this.resetRun();
-      this.state = "playing";
-      // DOM state: hide menu, show pause button.
-      if (this.dom) {
-        this.dom.menu.style.display = "none";
-        this.dom.startBtn.style.display = "none";
-        this.dom.pauseBtn.style.display = "block";
-        this.dom.cdOverlay.style.display = "none";
-      }
-      if (this.hud) this.hud.container.setVisible(true);
       this._restarting = false;
     }
 
@@ -3129,105 +2732,10 @@
         }
         // Floor number etched on every 5th floor
         if (f.n > 0 && f.n % 5 === 0 && f.w > 70) {
+          // Small tick on left end
           g.fillStyle(theme.wall, 0.55);
           g.fillRect(f.x + 4, f.y + 5, 3, 3);
         }
-        // --- Per-theme detail pass (additive, Phase 17) ---
-        this._floorDetail(g, f, theme);
-      }
-    }
-
-    // Per-theme floor decorations drawn ON TOP of the base floor.
-    // If any of this code misbehaves, removing the call above restores
-    // the Phase 15 base rendering with zero side effects.
-    _floorDetail(g, f, theme) {
-      const key = LEVELS[levelIndexFor(f.n)].themeKey;
-      switch (key) {
-        case "snow":
-          g.fillStyle(0xffffff, 1);
-          for (let x = f.x + 4; x < f.x + f.w - 4; x += 14) {
-            g.fillRect(x + (((x * 13) >>> 0) % 3), f.y + 1, 2, 2);
-          }
-          g.fillStyle(0xd3f0ff, 0.85);
-          for (let x = f.x + 6; x < f.x + f.w - 6; x += 18) {
-            const ih = 3 + (((x * 29) >>> 0) % 4);
-            g.fillRect(x, f.y + f.h, 2, ih);
-          }
-          break;
-        case "cave":
-          g.fillStyle(0xb8f0ff, 0.80);
-          for (let x = f.x + 8; x < f.x + f.w - 8; x += 22) {
-            g.fillRect(x, f.y + 4, 6, 1);
-            g.fillRect(x + 2, f.y + 5, 2, 2);
-          }
-          g.fillStyle(theme.top, 0.85);
-          for (let x = f.x + 12; x < f.x + f.w - 10; x += 26) {
-            g.fillRect(x, f.y + f.h, 2, 3);
-          }
-          break;
-        case "stone":
-          g.fillStyle(0x3a3a3a, 0.5);
-          g.fillRect(f.x, f.y + Math.floor(f.h / 2), f.w, 1);
-          for (let x = f.x + 18; x < f.x + f.w; x += 18) {
-            g.fillRect(x, f.y, 1, f.h);
-          }
-          break;
-        case "iron":
-          g.fillStyle(0x000000, 0.35);
-          for (let x = f.x + 28; x < f.x + f.w; x += 28) {
-            g.fillRect(x - 1, f.y, 1, f.h);
-          }
-          g.fillStyle(theme.accent, 0.85);
-          for (let x = f.x + 4; x < f.x + f.w - 2; x += 28) {
-            g.fillRect(x, f.y + 2, 2, 2);
-            g.fillRect(x, f.y + f.h - 3, 2, 2);
-          }
-          if (f.n > 0 && f.n % 20 === 0) {
-            g.fillStyle(0xffd000, 0.75);
-            for (let x = f.x; x < f.x + f.w; x += 8) {
-              g.fillRect(x, f.y + 3, 2, f.h - 4);
-            }
-          }
-          break;
-        case "lava":
-          g.fillStyle(0xffe070, 0.90);
-          g.fillRect(f.x, f.y, f.w, 1);
-          g.fillStyle(0xff7020, 0.70);
-          g.fillRect(f.x, f.y + 1, f.w, 1);
-          g.fillStyle(0xff6020, 0.80);
-          for (let x = f.x + 10; x < f.x + f.w - 10; x += 40) {
-            g.fillRect(x, f.y + f.h, 2, 4 + (((x * 17) >>> 0) % 5));
-          }
-          break;
-        case "forest":
-          g.fillStyle(0x1a3a1a, 0.45);
-          g.fillRect(f.x, f.y + f.h - 3, f.w, 1);
-          for (let x = f.x + 24; x < f.x + f.w; x += 24) {
-            g.fillRect(x, f.y, 1, f.h);
-          }
-          g.fillStyle(theme.top, 0.85);
-          for (let x = f.x + 8; x < f.x + f.w - 5; x += 20) {
-            g.fillRect(x, f.y - 2, 3, 2);
-          }
-          break;
-        case "storm":
-          g.fillStyle(theme.top, 0.65);
-          for (let x = f.x + 3; x < f.x + f.w - 3; x += 12) {
-            g.fillRect(x, f.y - 2, 6, 2);
-          }
-          if (f.n % 2 === 0) {
-            g.fillStyle(0xfff4a0, 0.50);
-            g.fillRect(f.x, f.y, f.w, 1);
-          }
-          break;
-        case "space":
-          g.fillStyle(0x000000, 0.30);
-          for (let x = f.x + 12; x < f.x + f.w; x += 12) {
-            g.fillRect(x, f.y, 1, f.h);
-          }
-          g.fillStyle(theme.accent, 0.55);
-          g.fillRect(f.x, f.y + f.h - 1, f.w, 1);
-          break;
       }
     }
 
@@ -3260,83 +2768,6 @@
       g.fillStyle(0x000000, 0.18);
       g.fillRect(CFG.WALL_THICKNESS / 2, top, 1, h);
       g.fillRect(this.W - CFG.WALL_THICKNESS / 2, top, 1, h);
-
-      // --- Per-theme wall detail pass (additive, Phase 17) ---
-      this._wallDetail(g, top, h, theme);
-    }
-
-    _wallDetail(g, top, h, theme) {
-      const n = this.player ? this.player.highestFloor : 0;
-      const key = LEVELS[levelIndexFor(n)].themeKey;
-      const W = this.W, t = CFG.WALL_THICKNESS;
-      switch (key) {
-        case "snow":
-          g.fillStyle(theme.accent, 0.30);
-          for (let y = Math.floor(top / 22) * 22; y < top + h; y += 22) {
-            g.fillTriangle(2, y, t - 2, y + 11, 2, y + 22);
-            g.fillTriangle(W - 2, y, W - t + 2, y + 11, W - 2, y + 22);
-          }
-          break;
-        case "cave":
-          g.fillStyle(theme.top, 0.65);
-          for (let y = Math.floor(top / 24) * 24; y < top + h; y += 24) {
-            g.fillTriangle(2, y, t - 4, y, t / 2, y + 8);
-            g.fillTriangle(W - 2, y, W - t + 4, y, W - t / 2, y + 8);
-          }
-          break;
-        case "stone":
-          g.fillStyle(0x000000, 0.40);
-          for (let y = Math.floor(top / 14) * 14; y < top + h; y += 14) {
-            g.fillRect(0, y, t, 1); g.fillRect(W - t, y, t, 1);
-            const off = ((y / 14) % 2 === 0) ? t / 2 : 0;
-            g.fillRect(off, y, 1, 14); g.fillRect(W - t + off, y, 1, 14);
-          }
-          break;
-        case "iron":
-          g.fillStyle(theme.accent, 0.80);
-          for (let y = Math.floor(top / 18) * 18; y < top + h; y += 18) {
-            g.fillRect(t / 2 - 1, y + 4, 3, 3);
-            g.fillRect(W - t / 2 - 1, y + 4, 3, 3);
-          }
-          g.fillStyle(0x000000, 0.45);
-          for (let y = Math.floor(top / 72) * 72; y < top + h; y += 72) {
-            g.fillRect(0, y, t, 2); g.fillRect(W - t, y, t, 2);
-          }
-          break;
-        case "lava":
-          g.fillStyle(0xff6020, 0.70);
-          for (let y = Math.floor(top / 20) * 20; y < top + h; y += 20) {
-            g.fillRect(2, y, t - 4, 1); g.fillRect(W - t + 2, y, t - 4, 1);
-          }
-          break;
-        case "forest":
-          g.fillStyle(0x1e4a22, 0.75);
-          for (let y = Math.floor(top / 12) * 12; y < top + h; y += 12) {
-            const kink = Math.sin((y + (this.time ? this.time.now : 0) * 0.0005) * 0.13) * (t / 3);
-            g.fillRect(t / 2 + kink, y, 3, 12);
-            g.fillRect(W - t / 2 - kink, y, 3, 12);
-          }
-          break;
-        case "storm":
-          g.fillStyle(theme.top, 0.30);
-          for (let y = Math.floor(top / 30) * 30; y < top + h; y += 30) {
-            g.fillRect(2, y + 4, t - 4, 10);
-            g.fillRect(W - t + 2, y + 4, t - 4, 10);
-          }
-          break;
-        case "space":
-          g.fillStyle(theme.accent, 0.22);
-          for (let y = Math.floor(top / 36) * 36; y < top + h; y += 36) {
-            g.fillRect(0, y, t, 1); g.fillRect(W - t, y, t, 1);
-          }
-          g.fillStyle(0x00e0ff, 0.80);
-          const pulse = Math.floor((this.time ? this.time.now : 0) / 80) * 10;
-          for (let y = (Math.floor((pulse + top) / 60) * 60); y < top + h; y += 60) {
-            g.fillRect(t - 4, y, 2, 2);
-            g.fillRect(W - t + 2, y, 2, 2);
-          }
-          break;
-      }
     }
 
     // ---------------------------------------------------------------
@@ -3479,11 +2910,13 @@
       if (this._titleTween) { this._titleTween.stop(); this._titleTween = null; }
       if (this.titleOverlay) { this.titleOverlay.destroy(); this.titleOverlay = null; }
       this._titlePreview = null;
-      // restartRun sets state="playing" and hides/shows DOM buttons.
+      this.state = "playing";
+      // Fresh run (clears any state from the pre-title resetRun())
       this.restartRun();
+      this.state = "playing";
       this.runStartTime = this.time.now;
       this.hintUntil = this.time.now + 5500;
-      if (this.audio) this.audio.init();
+      if (this.hud) this.hud.container.setVisible(true);
     }
 
     // ---------------------------------------------------------------
@@ -3495,7 +2928,6 @@
     }
     showPauseMenu() {
       this.state = "paused";
-      if (this.dom) this.dom.pauseBtn.style.display = "none";
       if (this.pauseOverlay) this.pauseOverlay.destroy();
       const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2300);
       const bg = this.add.graphics();
@@ -3540,66 +2972,18 @@
         y += btnH + gap;
       };
 
-      makeBtn("RESUME",    () => this.requestResume(),                   0x2e84d6, 0x9cd9ff);
+      makeBtn("RESUME",    () => this.hidePauseMenu(),                  0x2e84d6, 0x9cd9ff);
       makeBtn("CHARACTER", () => this.openCharacterSelect(),            0x1a1a24, 0xffdf3c);
       makeBtn(this.audio.muted ? "UNMUTE" : "MUTE",
         () => { this.audio.toggleMute(); this.showPauseMenu(); },       0x223344, 0x9cd9ff);
       makeBtn("RESTART",   () => { this.hidePauseMenu(); this.restartRun(); }, 0x664434, 0xffdf3c);
-      makeBtn("HOME",      () => {
-        this.hidePauseMenu(true);
-        this.state = "title";
-        this.showTitleScreen();
-        if (this.dom) { this.dom.startBtn.style.display = "block"; this.dom.pauseBtn.style.display = "none"; }
-      }, 0x444b66, 0xff9a9a);
+      makeBtn("HOME",      () => { this.hidePauseMenu(true); this.state = "title"; this.showTitleScreen(); }, 0x444b66, 0xff9a9a);
 
       this.pauseOverlay = g;
     }
     hidePauseMenu(keepState) {
       if (this.pauseOverlay) { this.pauseOverlay.destroy(); this.pauseOverlay = null; }
-      if (!keepState) {
-        this.state = "playing";
-        if (this.dom) this.dom.pauseBtn.style.display = "block";
-      }
-    }
-
-    // 3-second countdown before resume
-    requestResume() {
-      this.hidePauseMenu(true); // keep state not-playing
-      this.state = "countdown";
-      // Flush stale input
-      this.jumpBufferUntil = 0;
-      this.touchLeft = this.touchRight = false;
-      // Show DOM countdown overlay
-      if (this.dom) {
-        this.dom.cdOverlay.style.display = "flex";
-        this.dom.cdNum.textContent = "3";
-        this.dom.cdSub.textContent = "GET READY";
-      }
-      const beep = (f) => {
-        if (this.audio) this.audio._blip({ type: "triangle", f0: f, dur: 0.12, vol: 0.22 });
-      };
-      beep(660);
-      const tick = (n) => {
-        if (this.state !== "countdown") return;
-        if (this.dom) this.dom.cdNum.textContent = String(n);
-      };
-      this.time.delayedCall(1000, () => { if (this.state === "countdown") { tick(2); beep(784); } });
-      this.time.delayedCall(2000, () => { if (this.state === "countdown") { tick(1); beep(880); } });
-      this.time.delayedCall(3000, () => {
-        if (this.state !== "countdown") return;
-        if (this.dom) {
-          this.dom.cdNum.textContent = "GO!";
-          this.dom.cdSub.textContent = "";
-        }
-        beep(1320);
-        this.jumpBufferUntil = 0;
-        this.touchLeft = this.touchRight = false;
-        this.time.delayedCall(400, () => {
-          if (this.dom) this.dom.cdOverlay.style.display = "none";
-          this.state = "playing";
-          if (this.dom) this.dom.pauseBtn.style.display = "block";
-        });
-      });
+      if (!keepState) this.state = "playing";
     }
 
     // ---------------------------------------------------------------
@@ -3643,8 +3027,8 @@
         this.animateTitleScreen();
         return;
       }
-      // Paused / countdown / gameover: freeze world, keep it rendered.
-      if (this.state === "paused" || this.state === "countdown" || this.state === "gameover") {
+      // Paused: freeze world, keep overlay responsive.
+      if (this.state === "paused") {
         this.drawBackground();
         this.drawWalls();
         this.drawFloors();
@@ -3652,6 +3036,12 @@
         this.drawParticles();
         this.drawPlayer();
         this.drawHUD();
+        return;
+      }
+      if (this.gameOver) {
+        this.drawWalls();
+        this.drawFloors();
+        this.drawPlayer();
         return;
       }
       const dt = Math.min(delta / 1000, 1 / 30);
