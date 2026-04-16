@@ -825,7 +825,17 @@
       // We tag the "game input" handler so it can skip when gameOver overlays
       // are up (so taps on RESTART/SHARE don't also queue a jump).
       const gameTap = (pointer) => {
+        // Game-over: tap anywhere to restart (fallback for iOS).
+        if (this.state === "gameover") {
+          this.restartRun();
+          return;
+        }
         if (this.gameOver) return;
+        // Pause button hit area (top-right corner, 50x50).
+        if (this.state === "playing" && pointer.x > this.W - 60 && pointer.y < 55) {
+          this.togglePause();
+          return;
+        }
         // Buffer a jump for 150 ms - consumed instantly on landing.
         this.jumpBufferUntil = this.time.now + 150;
         // Remember which side was touched for the touch-steer fallback.
@@ -2222,10 +2232,25 @@
       c.add(comboLabel);
       comboLabel.setVisible(false);
 
+      // Pause button (top-right). Hit detection is in gameTap, not a zone.
+      const pauseGfx = this.add.graphics();
+      const ps = Math.max(32, Math.round(S * 0.058));
+      const px = this.W - pad - ps, py = pad - 2;
+      pauseGfx.fillStyle(0x000000, 0.50);
+      pauseGfx.fillRoundedRect(px, py, ps, ps, 8);
+      pauseGfx.lineStyle(2, 0x9cd9ff, 0.85);
+      pauseGfx.strokeRoundedRect(px, py, ps, ps, 8);
+      pauseGfx.fillStyle(0x9cd9ff, 1);
+      const bw = Math.round(ps * 0.15), bh = Math.round(ps * 0.5);
+      pauseGfx.fillRect(px + ps * 0.32 - bw / 2, py + (ps - bh) / 2, bw, bh);
+      pauseGfx.fillRect(px + ps * 0.68 - bw / 2, py + (ps - bh) / 2, bw, bh);
+      c.add(pauseGfx);
+
       this.hud = {
         container: c,
         floorPlate, floorTxt, scorePlate, scoreTxt, bestTxt,
         meterBG, meterFill, meterGlow, multTxt, comboLabel,
+        pauseGfx,
         pad, small, big, S,
         // Tickers / pulse state
         scoreShown: 0,
@@ -2414,7 +2439,11 @@
 
     triggerGameOver() {
       this.gameOver = true;
+      this.state = "gameover";
       this.audio.gameOver();
+      // Hide tilt DOM button so it can't intercept taps on the overlay.
+      const tb = document.getElementById("tilt-enable");
+      if (tb) tb.style.display = "none";
       // Persist all three bests to localStorage.
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
@@ -2546,8 +2575,16 @@
         });
       }
 
-      this.input.keyboard.once("keydown-SPACE", () => this.gameOver && this.restartRun());
-      this.input.keyboard.once("keydown-ENTER", () => this.gameOver && this.restartRun());
+      // "Tap anywhere" fallback — reliable on mobile even if Phaser zones fail.
+      const tapHint = this.add.text(cx, this.H - S * 0.04, "TAP ANYWHERE TO RESTART", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.028) + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 3,
+      }).setOrigin(0.5).setAlpha(0.7);
+      g.add(tapHint);
+
+      this.input.keyboard.once("keydown-SPACE", () => this.state === "gameover" && this.restartRun());
+      this.input.keyboard.once("keydown-ENTER", () => this.state === "gameover" && this.restartRun());
 
       this.gameOverOverlay = g;
     }
@@ -2701,6 +2738,8 @@
       }
 
       this.resetRun();
+      this.state = "playing";
+      if (this.hud) this.hud.container.setVisible(true);
       this._restarting = false;
     }
 
@@ -2972,7 +3011,7 @@
         y += btnH + gap;
       };
 
-      makeBtn("RESUME",    () => this.hidePauseMenu(),                  0x2e84d6, 0x9cd9ff);
+      makeBtn("RESUME",    () => this.requestResume(),                   0x2e84d6, 0x9cd9ff);
       makeBtn("CHARACTER", () => this.openCharacterSelect(),            0x1a1a24, 0xffdf3c);
       makeBtn(this.audio.muted ? "UNMUTE" : "MUTE",
         () => { this.audio.toggleMute(); this.showPauseMenu(); },       0x223344, 0x9cd9ff);
@@ -2984,6 +3023,41 @@
     hidePauseMenu(keepState) {
       if (this.pauseOverlay) { this.pauseOverlay.destroy(); this.pauseOverlay = null; }
       if (!keepState) this.state = "playing";
+    }
+
+    requestResume() {
+      this.hidePauseMenu(true);
+      this.state = "countdown";
+      this.jumpBufferUntil = 0;
+      this.touchLeft = this.touchRight = false;
+      const cx = this.W / 2, cy = this.H / 2;
+      const S = Math.min(this.W, this.H);
+      const numStyle = {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.30) + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 10,
+      };
+      const dim = this.add.graphics().setScrollFactor(0).setDepth(2350);
+      dim.fillStyle(0x000000, 0.50);
+      dim.fillRect(0, 0, this.W, this.H);
+      const numLabel = this.add.text(cx, cy, "3", numStyle).setOrigin(0.5).setScrollFactor(0).setDepth(2360);
+      const subLabel = this.add.text(cx, cy + S * 0.20, "GET READY", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.045) + "px", fontStyle: "bold",
+        color: "#fff", stroke: "#000", strokeThickness: 4,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(2360);
+      const beep = (f) => { if (this.audio) this.audio._blip({ type: "triangle", f0: f, dur: 0.12, vol: 0.22 }); };
+      beep(660);
+      const cleanup = () => { dim.destroy(); numLabel.destroy(); subLabel.destroy(); };
+      this.time.delayedCall(1000, () => { if (this.state !== "countdown") return; numLabel.setText("2"); beep(784); });
+      this.time.delayedCall(2000, () => { if (this.state !== "countdown") return; numLabel.setText("1"); beep(880); });
+      this.time.delayedCall(3000, () => {
+        if (this.state !== "countdown") return;
+        numLabel.setText("GO!"); numLabel.setColor("#9cd9ff"); subLabel.setVisible(false);
+        beep(1320);
+        this.jumpBufferUntil = 0; this.touchLeft = this.touchRight = false;
+        this.time.delayedCall(400, () => { cleanup(); this.state = "playing"; });
+      });
     }
 
     // ---------------------------------------------------------------
@@ -3028,7 +3102,7 @@
         return;
       }
       // Paused: freeze world, keep overlay responsive.
-      if (this.state === "paused") {
+      if (this.state === "paused" || this.state === "countdown") {
         this.drawBackground();
         this.drawWalls();
         this.drawFloors();
