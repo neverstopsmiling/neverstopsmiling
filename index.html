@@ -217,8 +217,6 @@
     { id: "trex",    name: "T-REX",          color: 0xe07020, drawFn: "drawCharTrex"    },
     { id: "yeti",    name: "YETI",           color: 0xe4eef4, drawFn: "drawCharYeti"    },
     { id: "robot",   name: "ROBOT",          color: 0xb0b4bc, drawFn: "drawCharRobot"   },
-    { id: "skater",  name: "SKATER",         color: 0xff5050, drawFn: "drawCharSkater"  },
-    { id: "surfer",  name: "SURFER",         color: 0x3ad0e8, drawFn: "drawCharSurfer"  },
   ];
 
   function levelIndexFor(n) {
@@ -498,88 +496,9 @@
         g.fillRect(0, (this.H * i) / steps, this.W, this.H / steps + 1);
       }
 
-      // Far parallax silhouette
-      this._farSilhouette(g, theme);
       // Per-theme decorative accent layer (snow, icicles, torches, etc.)
       const fn = theme.accentFn && this[theme.accentFn];
       if (fn) fn.call(this, g, theme);
-    }
-
-    _farSilhouette(g, theme) {
-      const n = this.player ? this.player.highestFloor : 0;
-      const key = LEVELS[levelIndexFor(n)].themeKey;
-      const cam = (this.cameraY || 0) * 0.15;
-      const fl = this.H - Math.min(this.H * 0.28, 160);
-      const sc = lerpColor(theme.bg2, theme.wall, 0.5);
-      g.fillStyle(sc, 0.85);
-      switch (key) {
-        case "snow":
-          for (let x = -(cam%40)-40; x < this.W+40; x += 40) {
-            const s = Math.floor((x+cam)/40);
-            const h = 40+(Math.abs(Math.sin(s*2.3))*60)|0;
-            g.fillTriangle(x, fl, x+20, fl-h, x+40, fl);
-          }
-          g.fillStyle(0xffffff, 0.80);
-          for (let x = -(cam%40)-40; x < this.W+40; x += 40) {
-            const s = Math.floor((x+cam)/40);
-            const h = 40+(Math.abs(Math.sin(s*2.3))*60)|0;
-            g.fillTriangle(x+14, fl-h+12, x+26, fl-h+12, x+20, fl-h);
-          }
-          break;
-        case "cave":
-          for (let x = -(cam%28)-28; x < this.W+28; x += 28) {
-            const s = Math.floor((x+cam)/28);
-            g.fillTriangle(x, this.H, x+14, this.H-(20+(Math.abs(Math.sin(s*3.1))*60)|0), x+28, this.H);
-          }
-          break;
-        case "stone":
-          g.fillRect(0, fl, this.W, this.H-fl);
-          for (let x = -((cam*0.6)%22)-22; x < this.W+22; x += 22) {
-            const s = Math.floor((x+cam)/22);
-            g.fillRect(x, fl-24-(s%2===0?14:0), 20, 24+(s%2===0?14:0));
-          }
-          break;
-        case "lava":
-          for (let x = -((cam*0.5)%120)-120; x < this.W+120; x += 120) {
-            const s = Math.floor((x+cam)/120);
-            const h = 80+(Math.abs(Math.sin(s*2.7))*60)|0;
-            const px = x+60;
-            g.fillStyle(0x200500, 0.85);
-            g.fillTriangle(px-60, fl, px, fl-h, px+60, fl);
-            g.fillStyle(0xff5010, 0.55);
-            g.fillTriangle(px-8, fl-h+4, px, fl-h, px+8, fl-h+4);
-            g.fillStyle(sc, 0.85);
-          }
-          break;
-        case "forest":
-          for (let x = -((cam*0.5)%28)-28; x < this.W+28; x += 28) {
-            const s = Math.floor((x+cam)/28);
-            const h = 50+(Math.abs(Math.sin(s*2.1))*50)|0;
-            g.fillStyle(0x0a2210, 0.80);
-            g.fillTriangle(x+2, fl, x+14, fl-h, x+26, fl);
-            g.fillStyle(sc, 0.85);
-          }
-          break;
-        case "storm":
-          g.fillStyle(0x40308a, 0.55);
-          for (let x = -((cam*0.5)%180)-180; x < this.W+180; x += 180) {
-            const s = Math.floor((x+cam)/180);
-            const h = 30+(Math.abs(Math.sin(s*1.9))*20)|0;
-            g.fillRect(x+10, fl-20-h, 160, 18+h);
-          }
-          break;
-        case "space":
-          for (let x = -((cam*0.4)%200)-200; x < this.W+200; x += 200) {
-            const s = Math.floor((x+cam)/200);
-            const r = 18+(Math.abs(Math.sin(s*1.4))*26)|0;
-            const cx = x+100, cy = 120+(Math.abs(Math.cos(s*2.1))*(this.H-260))|0;
-            g.fillStyle(lerpColor(theme.bg2, theme.accent, 0.35), 0.75);
-            g.fillCircle(cx, cy, r);
-            g.fillStyle(0x000000, 0.35);
-            g.fillCircle(cx+r*0.35, cy, r*0.9);
-          }
-          break;
-      }
     }
 
     // -------------- Per-theme accent renderers --------------
@@ -906,17 +825,7 @@
       // We tag the "game input" handler so it can skip when gameOver overlays
       // are up (so taps on RESTART/SHARE don't also queue a jump).
       const gameTap = (pointer) => {
-        // Game-over: tap anywhere to restart (fallback for iOS).
-        if (this.state === "gameover") {
-          this.restartRun();
-          return;
-        }
         if (this.gameOver) return;
-        // Pause button hit area (top-right corner, 50x50).
-        if (this.state === "playing" && pointer.x > this.W - 60 && pointer.y < 55) {
-          this.togglePause();
-          return;
-        }
         // Buffer a jump for 150 ms - consumed instantly on landing.
         this.jumpBufferUntil = this.time.now + 150;
         // Remember which side was touched for the touch-steer fallback.
@@ -1567,68 +1476,6 @@
       // Visor glint
       g.fillStyle(0xffffff, 1);
       g.fillRect(bx + w - 7, by + 8, 2, 1);
-    }
-
-    drawCharSkater(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const bx = -w/2, by = -h/2;
-      const boardW = w+6, boardX = -boardW/2, boardY = by+h-2;
-      g.fillStyle(0xff5050, 1); g.fillRect(boardX, boardY, boardW, 3);
-      g.fillStyle(0x7a1a1a, 1); g.fillRect(boardX, boardY+3, boardW, 1);
-      g.fillStyle(0xffdf3c, 1);
-      [boardX+2, boardX+boardW-6].forEach((wx) => {
-        g.fillRect(wx, boardY+5, 4, 4);
-        g.fillStyle(0x1a1a1a, 0.7);
-        if (speedFrac>0.05 && Math.sin(runPhase*3)>0) g.fillRect(wx+1, boardY+5, 2, 4);
-        else g.fillRect(wx, boardY+6, 4, 2);
-        g.fillStyle(0xffdf3c, 1);
-      });
-      const legH = h*0.28-(airborne?4:1), legY = boardY-legH;
-      g.fillStyle(0x2040a0, 1);
-      const s = !airborne && speedFrac>0.05 ? Math.sin(runPhase)*1.5 : 0;
-      g.fillRect(-w*0.2-2, legY-s, 4, legH); g.fillRect(w*0.2-2, legY+s, 4, legH);
-      const bodyH = h*0.42, bodyY = by+h*0.26;
-      g.fillStyle(0x555a66, 1); g.fillRect(bx, bodyY, w, bodyH);
-      g.fillStyle(0xffffff, 1); g.fillRect(bx+w/2-1, bodyY, 2, 6);
-      g.fillStyle(0x404550, 1); g.fillRect(bx+3, bodyY+bodyH-6, w-6, 4);
-      g.fillStyle(0x555a66, 1);
-      if (airborne) { g.fillRect(bx-4, bodyY+4, 4, bodyH*0.65); g.fillRect(bx+w, bodyY+4, 4, bodyH*0.65); }
-      else { const a=speedFrac>0.05?Math.sin(runPhase+Math.PI)*2:0; g.fillRect(bx-2, bodyY+a, 3, bodyH*0.8); g.fillRect(bx+w-1, bodyY-a, 3, bodyH*0.8); }
-      const headW = w-4, headX = bx+2, headY = by;
-      g.fillStyle(0xf2d1a8, 1); g.fillRect(headX, headY+4, headW, h*0.26-4);
-      g.fillStyle(0xff5050, 1); g.fillRect(headX-1, headY, headW+2, 6); g.fillRect(headX-4, headY+3, 5, 3);
-      g.fillStyle(0xffffff, 1); g.fillRect(headX+1, headY+2, 4, 1);
-      g.fillStyle(0x000000, 1);
-      g.fillRect(headX+headW-7, headY+8, 2, 2); g.fillRect(headX+headW-3, headY+8, 2, 2);
-      g.fillRect(headX+headW-7, headY+12, 4, 1);
-    }
-
-    drawCharSurfer(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const bx = -w/2, by = -h/2;
-      const boardW = w+16, boardX = -boardW/2, boardY = by+h-2;
-      g.fillStyle(0xffffff, 1); g.fillRect(boardX+2, boardY, boardW-4, 3);
-      g.fillStyle(0x3ad0e8, 1); g.fillRect(boardX+4, boardY+1, boardW-8, 1);
-      g.fillRect(boardX+4, boardY+3, 2, 4);
-      if (!airborne && speedFrac>0.2) { g.fillStyle(0xb8f0ff, 0.80); g.fillRect(boardX-4, boardY+4, 4, 1); g.fillRect(boardX+boardW, boardY+4, 4, 1); }
-      const legH = h*0.28, legY = boardY-legH;
-      g.fillStyle(0xe8b88a, 1);
-      const s = !airborne && speedFrac>0.05 ? Math.sin(runPhase*0.7)*1.2 : 0;
-      g.fillRect(-w*0.22-2, legY-s, 4, airborne?legH-4:legH); g.fillRect(w*0.22-2, legY+s, 4, airborne?legH-4:legH);
-      g.fillStyle(0x1a3a6a, 1);
-      g.fillRect(-w*0.22-3, legY, 6, 5); g.fillRect(w*0.22-3, legY, 6, 5);
-      const bodyH = h*0.32, bodyY = by+h*0.32;
-      g.fillStyle(0xff7a2a, 1); g.fillRect(bx, bodyY, w, bodyH);
-      g.fillStyle(0xffc070, 1); g.fillRect(bx+2, bodyY, 3, 3); g.fillRect(bx+w-5, bodyY, 3, 3);
-      g.fillStyle(0xe8b88a, 1);
-      if (airborne) { g.fillRect(bx-6, bodyY+2, 6, 4); g.fillRect(bx+w, bodyY-3, 6, 4); }
-      else { const a=speedFrac>0.05?Math.sin(now*0.004)*2:0; g.fillRect(bx-5, bodyY+4+a, 5, 4); g.fillRect(bx+w, bodyY+4-a, 5, 4); }
-      const headW = w-4, headX = bx+2, headY = by+1;
-      g.fillStyle(0xe8b88a, 1); g.fillRect(headX, headY+4, headW, h*0.26-4);
-      g.fillStyle(0xffcc40, 1); g.fillRect(headX, headY, headW, 5); g.fillRect(headX-3, headY+2, 4, 6); g.fillRect(headX-5, headY+5, 3, 5);
-      g.fillStyle(0x1a1a1a, 1); g.fillRect(headX+3, headY+8, headW-6, 3);
-      g.fillStyle(0x6efff0, 0.85); g.fillRect(headX+headW-6, headY+9, 3, 1);
-      g.fillStyle(0x000000, 1); g.fillRect(headX+headW-7, headY+13, 4, 1);
     }
 
     // ---------------------------------------------------------------
@@ -2375,25 +2222,10 @@
       c.add(comboLabel);
       comboLabel.setVisible(false);
 
-      // Pause button (top-right). Hit detection is in gameTap, not a zone.
-      const pauseGfx = this.add.graphics();
-      const ps = Math.max(32, Math.round(S * 0.058));
-      const px = this.W - pad - ps, py = pad - 2;
-      pauseGfx.fillStyle(0x000000, 0.50);
-      pauseGfx.fillRoundedRect(px, py, ps, ps, 8);
-      pauseGfx.lineStyle(2, 0x9cd9ff, 0.85);
-      pauseGfx.strokeRoundedRect(px, py, ps, ps, 8);
-      pauseGfx.fillStyle(0x9cd9ff, 1);
-      const bw = Math.round(ps * 0.15), bh = Math.round(ps * 0.5);
-      pauseGfx.fillRect(px + ps * 0.32 - bw / 2, py + (ps - bh) / 2, bw, bh);
-      pauseGfx.fillRect(px + ps * 0.68 - bw / 2, py + (ps - bh) / 2, bw, bh);
-      c.add(pauseGfx);
-
       this.hud = {
         container: c,
         floorPlate, floorTxt, scorePlate, scoreTxt, bestTxt,
         meterBG, meterFill, meterGlow, multTxt, comboLabel,
-        pauseGfx,
         pad, small, big, S,
         // Tickers / pulse state
         scoreShown: 0,
@@ -2582,11 +2414,7 @@
 
     triggerGameOver() {
       this.gameOver = true;
-      this.state = "gameover";
       this.audio.gameOver();
-      // Hide tilt DOM button so it can't intercept taps on the overlay.
-      const tb = document.getElementById("tilt-enable");
-      if (tb) tb.style.display = "none";
       // Persist all three bests to localStorage.
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
@@ -2718,16 +2546,8 @@
         });
       }
 
-      // "Tap anywhere" fallback — reliable on mobile even if Phaser zones fail.
-      const tapHint = this.add.text(cx, this.H - S * 0.04, "TAP ANYWHERE TO RESTART", {
-        fontFamily: "Courier New, monospace",
-        fontSize: Math.round(S * 0.028) + "px", fontStyle: "bold",
-        color: "#ffffff", stroke: "#000", strokeThickness: 3,
-      }).setOrigin(0.5).setAlpha(0.7);
-      g.add(tapHint);
-
-      this.input.keyboard.once("keydown-SPACE", () => this.state === "gameover" && this.restartRun());
-      this.input.keyboard.once("keydown-ENTER", () => this.state === "gameover" && this.restartRun());
+      this.input.keyboard.once("keydown-SPACE", () => this.gameOver && this.restartRun());
+      this.input.keyboard.once("keydown-ENTER", () => this.gameOver && this.restartRun());
 
       this.gameOverOverlay = g;
     }
@@ -2881,8 +2701,6 @@
       }
 
       this.resetRun();
-      this.state = "playing";
-      if (this.hud) this.hud.container.setVisible(true);
       this._restarting = false;
     }
 
@@ -2918,57 +2736,6 @@
           g.fillStyle(theme.wall, 0.55);
           g.fillRect(f.x + 4, f.y + 5, 3, 3);
         }
-        // Per-theme detail (additive overlay)
-        this._floorDetail(g, f, theme);
-      }
-    }
-
-    _floorDetail(g, f, theme) {
-      const key = LEVELS[levelIndexFor(f.n)].themeKey;
-      switch (key) {
-        case "snow":
-          g.fillStyle(0xffffff, 1);
-          for (let x = f.x + 4; x < f.x + f.w - 4; x += 14) g.fillRect(x + (((x*13)>>>0)%3), f.y+1, 2, 2);
-          g.fillStyle(0xd3f0ff, 0.85);
-          for (let x = f.x + 6; x < f.x + f.w - 6; x += 18) g.fillRect(x, f.y+f.h, 2, 3+(((x*29)>>>0)%4));
-          break;
-        case "cave":
-          g.fillStyle(0xb8f0ff, 0.80);
-          for (let x = f.x+8; x < f.x+f.w-8; x += 22) { g.fillRect(x, f.y+4, 6, 1); g.fillRect(x+2, f.y+5, 2, 2); }
-          break;
-        case "stone":
-          g.fillStyle(0x3a3a3a, 0.5);
-          g.fillRect(f.x, f.y+Math.floor(f.h/2), f.w, 1);
-          for (let x = f.x+18; x < f.x+f.w; x += 18) g.fillRect(x, f.y, 1, f.h);
-          break;
-        case "iron":
-          g.fillStyle(0x000000, 0.35);
-          for (let x = f.x+28; x < f.x+f.w; x += 28) g.fillRect(x-1, f.y, 1, f.h);
-          g.fillStyle(theme.accent, 0.85);
-          for (let x = f.x+4; x < f.x+f.w-2; x += 28) { g.fillRect(x, f.y+2, 2, 2); g.fillRect(x, f.y+f.h-3, 2, 2); }
-          break;
-        case "lava":
-          g.fillStyle(0xffe070, 0.90); g.fillRect(f.x, f.y, f.w, 1);
-          g.fillStyle(0xff7020, 0.70); g.fillRect(f.x, f.y+1, f.w, 1);
-          g.fillStyle(0xff6020, 0.80);
-          for (let x = f.x+10; x < f.x+f.w-10; x += 40) g.fillRect(x, f.y+f.h, 2, 4+(((x*17)>>>0)%5));
-          break;
-        case "forest":
-          g.fillStyle(0x1a3a1a, 0.45);
-          for (let x = f.x+24; x < f.x+f.w; x += 24) g.fillRect(x, f.y, 1, f.h);
-          g.fillStyle(theme.top, 0.85);
-          for (let x = f.x+8; x < f.x+f.w-5; x += 20) g.fillRect(x, f.y-2, 3, 2);
-          break;
-        case "storm":
-          g.fillStyle(theme.top, 0.65);
-          for (let x = f.x+3; x < f.x+f.w-3; x += 12) g.fillRect(x, f.y-2, 6, 2);
-          if (f.n%2===0) { g.fillStyle(0xfff4a0, 0.50); g.fillRect(f.x, f.y, f.w, 1); }
-          break;
-        case "space":
-          g.fillStyle(0x000000, 0.30);
-          for (let x = f.x+12; x < f.x+f.w; x += 12) g.fillRect(x, f.y, 1, f.h);
-          g.fillStyle(theme.accent, 0.55); g.fillRect(f.x, f.y+f.h-1, f.w, 1);
-          break;
       }
     }
 
@@ -3001,59 +2768,6 @@
       g.fillStyle(0x000000, 0.18);
       g.fillRect(CFG.WALL_THICKNESS / 2, top, 1, h);
       g.fillRect(this.W - CFG.WALL_THICKNESS / 2, top, 1, h);
-      // Per-theme wall overlay
-      this._wallDetail(g, top, h, theme);
-    }
-
-    _wallDetail(g, top, h, theme) {
-      const n = this.player ? this.player.highestFloor : 0;
-      const key = LEVELS[levelIndexFor(n)].themeKey;
-      const W = this.W, t = CFG.WALL_THICKNESS;
-      switch (key) {
-        case "snow":
-          g.fillStyle(theme.accent, 0.30);
-          for (let y = Math.floor(top/22)*22; y < top+h; y += 22) {
-            g.fillTriangle(2, y, t-2, y+11, 2, y+22);
-            g.fillTriangle(W-2, y, W-t+2, y+11, W-2, y+22);
-          }
-          break;
-        case "cave":
-          g.fillStyle(theme.top, 0.65);
-          for (let y = Math.floor(top/24)*24; y < top+h; y += 24) {
-            g.fillTriangle(2, y, t-4, y, t/2, y+8);
-            g.fillTriangle(W-2, y, W-t+4, y, W-t/2, y+8);
-          }
-          break;
-        case "stone":
-          g.fillStyle(0x000000, 0.40);
-          for (let y = Math.floor(top/14)*14; y < top+h; y += 14) {
-            g.fillRect(0, y, t, 1); g.fillRect(W-t, y, t, 1);
-          }
-          break;
-        case "iron":
-          g.fillStyle(theme.accent, 0.80);
-          for (let y = Math.floor(top/18)*18; y < top+h; y += 18) { g.fillRect(t/2-1, y+4, 3, 3); g.fillRect(W-t/2-1, y+4, 3, 3); }
-          break;
-        case "lava":
-          g.fillStyle(0xff6020, 0.70);
-          for (let y = Math.floor(top/20)*20; y < top+h; y += 20) { g.fillRect(2, y, t-4, 1); g.fillRect(W-t+2, y, t-4, 1); }
-          break;
-        case "forest":
-          g.fillStyle(0x1e4a22, 0.75);
-          for (let y = Math.floor(top/12)*12; y < top+h; y += 12) {
-            const kink = Math.sin((y+(this.time?this.time.now:0)*0.0005)*0.13)*(t/3);
-            g.fillRect(t/2+kink, y, 3, 12); g.fillRect(W-t/2-kink, y, 3, 12);
-          }
-          break;
-        case "storm":
-          g.fillStyle(theme.top, 0.30);
-          for (let y = Math.floor(top/30)*30; y < top+h; y += 30) { g.fillRect(2, y+4, t-4, 10); g.fillRect(W-t+2, y+4, t-4, 10); }
-          break;
-        case "space":
-          g.fillStyle(theme.accent, 0.22);
-          for (let y = Math.floor(top/36)*36; y < top+h; y += 36) { g.fillRect(0, y, t, 1); g.fillRect(W-t, y, t, 1); }
-          break;
-      }
     }
 
     // ---------------------------------------------------------------
@@ -3258,7 +2972,7 @@
         y += btnH + gap;
       };
 
-      makeBtn("RESUME",    () => this.requestResume(),                   0x2e84d6, 0x9cd9ff);
+      makeBtn("RESUME",    () => this.hidePauseMenu(),                  0x2e84d6, 0x9cd9ff);
       makeBtn("CHARACTER", () => this.openCharacterSelect(),            0x1a1a24, 0xffdf3c);
       makeBtn(this.audio.muted ? "UNMUTE" : "MUTE",
         () => { this.audio.toggleMute(); this.showPauseMenu(); },       0x223344, 0x9cd9ff);
@@ -3270,41 +2984,6 @@
     hidePauseMenu(keepState) {
       if (this.pauseOverlay) { this.pauseOverlay.destroy(); this.pauseOverlay = null; }
       if (!keepState) this.state = "playing";
-    }
-
-    requestResume() {
-      this.hidePauseMenu(true);
-      this.state = "countdown";
-      this.jumpBufferUntil = 0;
-      this.touchLeft = this.touchRight = false;
-      const cx = this.W / 2, cy = this.H / 2;
-      const S = Math.min(this.W, this.H);
-      const numStyle = {
-        fontFamily: "Courier New, monospace",
-        fontSize: Math.round(S * 0.30) + "px", fontStyle: "bold",
-        color: "#ffdf3c", stroke: "#000", strokeThickness: 10,
-      };
-      const dim = this.add.graphics().setScrollFactor(0).setDepth(2350);
-      dim.fillStyle(0x000000, 0.50);
-      dim.fillRect(0, 0, this.W, this.H);
-      const numLabel = this.add.text(cx, cy, "3", numStyle).setOrigin(0.5).setScrollFactor(0).setDepth(2360);
-      const subLabel = this.add.text(cx, cy + S * 0.20, "GET READY", {
-        fontFamily: "Courier New, monospace",
-        fontSize: Math.round(S * 0.045) + "px", fontStyle: "bold",
-        color: "#fff", stroke: "#000", strokeThickness: 4,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(2360);
-      const beep = (f) => { if (this.audio) this.audio._blip({ type: "triangle", f0: f, dur: 0.12, vol: 0.22 }); };
-      beep(660);
-      const cleanup = () => { dim.destroy(); numLabel.destroy(); subLabel.destroy(); };
-      this.time.delayedCall(1000, () => { if (this.state !== "countdown") return; numLabel.setText("2"); beep(784); });
-      this.time.delayedCall(2000, () => { if (this.state !== "countdown") return; numLabel.setText("1"); beep(880); });
-      this.time.delayedCall(3000, () => {
-        if (this.state !== "countdown") return;
-        numLabel.setText("GO!"); numLabel.setColor("#9cd9ff"); subLabel.setVisible(false);
-        beep(1320);
-        this.jumpBufferUntil = 0; this.touchLeft = this.touchRight = false;
-        this.time.delayedCall(400, () => { cleanup(); this.state = "playing"; });
-      });
     }
 
     // ---------------------------------------------------------------
@@ -3349,7 +3028,7 @@
         return;
       }
       // Paused: freeze world, keep overlay responsive.
-      if (this.state === "paused" || this.state === "countdown") {
+      if (this.state === "paused") {
         this.drawBackground();
         this.drawWalls();
         this.drawFloors();
