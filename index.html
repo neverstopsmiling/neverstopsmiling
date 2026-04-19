@@ -32,21 +32,19 @@
     #tilt-enable {
       position: fixed;
       left: 50%;
-      top: 18px;
+      bottom: 24px;
       transform: translateX(-50%);
-      padding: 10px 16px;
+      padding: 12px 22px;
       background: rgba(20, 90, 180, 0.92);
       color: #fff;
       border: 2px solid #9cd9ff;
       border-radius: 10px;
-      font: 700 12px/1 "Courier New", monospace;
+      font: 700 14px/1 "Courier New", monospace;
       letter-spacing: 1px;
       text-transform: uppercase;
       display: none;
       z-index: 20;
       box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-      /* Don't intercept taps outside of the button itself */
-      touch-action: manipulation;
     }
     #boot-msg {
       position: fixed;
@@ -141,103 +139,11 @@
     MILESTONES: [100, 250, 500, 1000],
   };
 
-  // Level progression. floor = the lowest floor number that belongs to this
-  // level. Each level also drives the scroll-speed baseline, floor-width
-  // factor (applied to the 70% base), and visual theme.
-  const LEVELS = [
-    { floor:    1, themeKey: "snow",   scrollSpeed:  30, widthFactor: 1.00, name: "SNOWFIELD"      },
-    { floor:   20, themeKey: "cave",   scrollSpeed:  50, widthFactor: 0.92, name: "FROZEN CAVE"    },
-    { floor:   50, themeKey: "stone",  scrollSpeed:  75, widthFactor: 0.82, name: "STONE KEEP"     },
-    { floor:  100, themeKey: "iron",   scrollSpeed: 105, widthFactor: 0.70, name: "IRON FORTRESS"  },
-    { floor:  200, themeKey: "lava",   scrollSpeed: 140, widthFactor: 0.55, name: "LAVA CAVERN"    },
-    { floor:  400, themeKey: "forest", scrollSpeed: 180, widthFactor: 0.42, name: "ENCHANTED WOOD" },
-    { floor:  800, themeKey: "storm",  scrollSpeed: 220, widthFactor: 0.34, name: "STORM CLOUDS"   },
-    { floor: 1500, themeKey: "space",  scrollSpeed: 260, widthFactor: 0.28, name: "DEEP SPACE"     },
-  ];
-
-  // Per-theme palette + decorative accent hook (method name on GameScene).
-  const THEMES = {
-    snow: {
-      top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c,
-      bg1: 0x0b1d3a, bg2: 0x1a3d6c,
-      accent: 0xe8faff, glint: 0xd3f0ff,
-      name: "SNOWFIELD", accentFn: "accentSnow",
-    },
-    cave: {
-      top: 0x7ad0e0, side: 0x2a7380, wall: 0x0e3a42,
-      bg1: 0x041822, bg2: 0x0e3440,
-      accent: 0xb8f0ff, glint: 0x5aa8c0,
-      name: "FROZEN CAVE", accentFn: "accentCave",
-    },
-    stone: {
-      top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x2e2e34,
-      bg1: 0x14141a, bg2: 0x2a2a32,
-      accent: 0xffd480, glint: 0xa8a8a8,
-      name: "STONE KEEP", accentFn: "accentStone",
-    },
-    iron: {
-      top: 0x8a7868, side: 0x3e3428, wall: 0x1a1008,
-      bg1: 0x0a0805, bg2: 0x1c1510,
-      accent: 0xffa040, glint: 0x706050,
-      name: "IRON FORTRESS", accentFn: "accentIron",
-    },
-    lava: {
-      top: 0xffb27a, side: 0xcc3a0a, wall: 0x5a1400,
-      bg1: 0x200500, bg2: 0x501200,
-      accent: 0xffd27a, glint: 0xff7a30,
-      name: "LAVA CAVERN", accentFn: "accentLava",
-    },
-    forest: {
-      top: 0xb8f0a8, side: 0x2a7a38, wall: 0x14401e,
-      bg1: 0x061505, bg2: 0x0f2e18,
-      accent: 0xfff0a8, glint: 0x6acb7a,
-      name: "ENCHANTED WOOD", accentFn: "accentForest",
-    },
-    storm: {
-      top: 0xc0a8ff, side: 0x6a4aa0, wall: 0x2e1858,
-      bg1: 0x0a0020, bg2: 0x180a44,
-      accent: 0xfff4a0, glint: 0x9070ff,
-      name: "STORM CLOUDS", accentFn: "accentStorm",
-    },
-    space: {
-      top: 0xd8c0ff, side: 0x5e3fa0, wall: 0x261048,
-      bg1: 0x010014, bg2: 0x0c0830,
-      accent: 0xfff0ff, glint: 0xa47fff,
-      name: "DEEP SPACE", accentFn: "accentSpace",
-    },
-  };
-
-  // Character roster - each has its own procedural drawer (method name
-  // on GameScene). All take the same options object and draw in local
-  // body-centered coordinates so rotation / facing transforms behave.
-  const CHARACTERS = [
-    { id: "climber", name: "ARCTIC CLIMBER", color: 0x2e84d6, drawFn: "drawCharClimber" },
-    { id: "penguin", name: "PENGUIN",        color: 0x1a1a1a, drawFn: "drawCharPenguin" },
-    { id: "dragon",  name: "DRAGON",         color: 0x3ac050, drawFn: "drawCharDragon"  },
-    { id: "trex",    name: "T-REX",          color: 0xe07020, drawFn: "drawCharTrex"    },
-    { id: "yeti",    name: "YETI",           color: 0xe4eef4, drawFn: "drawCharYeti"    },
-    { id: "robot",   name: "ROBOT",          color: 0xb0b4bc, drawFn: "drawCharRobot"   },
-  ];
-
-  function levelIndexFor(n) {
-    let idx = 0;
-    for (let i = 0; i < LEVELS.length; i++) {
-      if (n >= LEVELS[i].floor) idx = i;
-      else break;
-    }
-    return idx;
-  }
-  function levelFor(n) { return LEVELS[levelIndexFor(n)]; }
-
   const LS_KEYS = {
-    bestScore:    "frostspire.bestScore",
-    bestFloor:    "frostspire.bestFloor",
-    longestCombo: "frostspire.longestCombo",
-    ghost:        "frostspire.ghost",
-    tiltGranted:  "frostspire.tiltGranted",   // "1" after user granted motion permission
-    tiltInvert:   "frostspire.tiltInvert",    // "1" = invert X sign
-    bestFlips:    "frostspire.bestFlips",
-    character:    "frostspire.character",
+    bestScore:   "frostspire.bestScore",
+    bestFloor:   "frostspire.bestFloor",
+    longestCombo:"frostspire.longestCombo",
+    ghost:       "frostspire.ghost",
   };
 
   function lsGetInt(key, fallback) {
@@ -255,21 +161,6 @@
   function lsSet(key, val) {
     try { localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val)); }
     catch (_) {}
-  }
-
-  // Combo tier color (0xRRGGBB). Used by HUD glow + multiplier text.
-  function tierColorFor(n) {
-    if (n >= 100) return 0xff5cf0;       // GODLIKE pink
-    if (n >= 50)  return 0xff3cdc;       // EXTREME magenta
-    if (n >= 30)  return 0xa93cff;       // FANTASTIC purple
-    if (n >= 20)  return 0xff2e2e;       // EXCELLENT red
-    if (n >= 10)  return 0xff8a2a;       // SWEET orange
-    if (n >= 5)   return 0xffdf3c;       // GOOD yellow
-    return 0xffcc00;                     // opening color
-  }
-  function tierColorCssFor(n) {
-    const v = tierColorFor(n).toString(16).padStart(6, "0");
-    return "#" + v;
   }
 
   // Linearly blend two 0xRRGGBB colors at t in [0..1]
@@ -422,8 +313,6 @@
       this.input.keyboard.on("keydown", armAudio);
       // M key toggles mute
       this.input.keyboard.on("keydown-M", () => this.audio.toggleMute());
-      // C key opens character select (also cancels current if open)
-      this.input.keyboard.on("keydown-C", () => this.openCharacterSelect());
 
       // Persistent bests (loaded once at boot, updated during play)
       this.best = {
@@ -452,14 +341,6 @@
       this.setupInput();
       this.resetRun();
 
-      // Start on title screen instead of playing immediately.
-      this.state = "title";
-      this.showTitleScreen();
-
-      // P / Esc to pause during play
-      this.input.keyboard.on("keydown-P", () => this.togglePause());
-      this.input.keyboard.on("keydown-ESC", () => this.togglePause());
-
       this.scale.on("resize", this.onResize, this);
 
       // Hide boot overlay now that Phaser is alive.
@@ -487,8 +368,8 @@
       g.clear();
       const theme = this.currentTheme ? this.currentTheme() : this.floorTheme(0);
 
-      // Chunky vertical gradient between bg1 and bg2.
-      const steps = 12;
+      // Draw a chunky-pixel vertical gradient between bg1 and bg2.
+      const steps = 10;
       for (let i = 0; i < steps; i++) {
         const t = i / (steps - 1);
         const c = lerpColor(theme.bg1, theme.bg2, t);
@@ -496,198 +377,18 @@
         g.fillRect(0, (this.H * i) / steps, this.W, this.H / steps + 1);
       }
 
-      // Per-theme decorative accent layer (snow, icicles, torches, etc.)
-      const fn = theme.accentFn && this[theme.accentFn];
-      if (fn) fn.call(this, g, theme);
-    }
-
-    // -------------- Per-theme accent renderers --------------
-    // They all draw in screen-space onto this.bgGfx after the gradient.
-    // Most use a deterministic pseudo-random function of (screen x, scroll)
-    // so they drift naturally as the camera moves.
-
-    _rng(seed) {
-      // Tiny deterministic PRNG [0..1)
-      let s = seed >>> 0;
-      return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
-    }
-
-    accentSnow(g, theme) {
-      // Falling snowflakes drifting downward, parallax tied to camera.
-      const t = this.time.now * 0.001;
-      const cam = this.cameraY || 0;
-      const rand = this._rng(42);
-      for (let i = 0; i < 55; i++) {
-        const baseX = rand() * this.W;
-        const baseY = rand() * this.H;
-        const spd   = 10 + rand() * 20;
-        const drift = Math.sin((t + i) * 0.7) * 8;
-        const y = (baseY + t * spd + cam * 0.12) % this.H;
-        const x = (baseX + drift + this.W) % this.W;
+      // Subtle parallax "stars" / ice motes - deterministic per band
+      const band = this.player ? Math.floor(this.player.highestFloor / 100) : 0;
+      const seed = 1337 + band * 7;
+      const count = 40;
+      g.fillStyle(theme.accent, 0.35);
+      for (let i = 0; i < count; i++) {
+        const r = ((seed * (i + 1)) * 9301 + 49297) % 233280;
+        const x = (r % this.W);
+        const y = ((r >> 3) % this.H);
         const sz = 1 + (i % 3);
-        g.fillStyle(theme.accent, 0.55);
         g.fillRect(x, y, sz, sz);
       }
-    }
-
-    accentCave(g, theme) {
-      // Hanging icicles along the top + drifting mist.
-      g.fillStyle(theme.top, 0.55);
-      const cols = Math.ceil(this.W / 24);
-      for (let c = 0; c < cols; c++) {
-        const h = 8 + ((c * 1103515245 + 12345) >>> 4) % 18;
-        const x = c * 24 + 6;
-        g.fillRect(x, 0, 4, h);
-        g.fillRect(x + 1, h, 2, 3);
-      }
-      // Mist swirls
-      const t = this.time.now * 0.0005;
-      g.fillStyle(theme.accent, 0.12);
-      for (let i = 0; i < 12; i++) {
-        const x = ((t * 40 + i * 91) % (this.W + 120)) - 60;
-        const y = 40 + ((i * 37) % (this.H - 120));
-        g.fillRect(x, y, 80, 6);
-      }
-    }
-
-    accentStone(g, theme) {
-      // Wall torches: bright flickering flames at fixed column positions.
-      const cam = this.cameraY || 0;
-      const flameColors = [0xffcc40, 0xff7a20, 0xff4010];
-      const positions = [
-        { x: 16, side: -1 },
-        { x: this.W - 16, side: 1 },
-      ];
-      // Torches repeat every 160 world pixels, anchored to camera so they scroll.
-      const rowH = 160;
-      const startRow = Math.floor(cam / rowH) * rowH;
-      for (let y = startRow; y < cam + this.H + rowH; y += rowH) {
-        const screenY = y - cam;
-        if (screenY < -20 || screenY > this.H + 20) continue;
-        for (const pos of positions) {
-          // Bracket
-          g.fillStyle(0x5a3010, 1);
-          g.fillRect(pos.x - 3, screenY, 6, 4);
-          // Flame
-          const flick = Math.floor(this.time.now / 90 + y) % 3;
-          g.fillStyle(flameColors[flick], 0.95);
-          g.fillRect(pos.x - 3, screenY - 8, 6, 6);
-          g.fillStyle(0xffeeaa, 0.8);
-          g.fillRect(pos.x - 1, screenY - 10, 2, 3);
-        }
-      }
-    }
-
-    accentIron(g, theme) {
-      // Rivets on the walls + occasional sparks in the middle.
-      const cam = this.cameraY || 0;
-      g.fillStyle(0x2a1a0a, 1);
-      const rowH = 50;
-      const startRow = Math.floor(cam / rowH) * rowH;
-      for (let y = startRow; y < cam + this.H; y += rowH) {
-        const sy = y - cam;
-        g.fillRect(8, sy, 3, 3);
-        g.fillRect(this.W - 11, sy, 3, 3);
-      }
-      // Sparks
-      const t = this.time.now;
-      g.fillStyle(theme.accent, 0.9);
-      for (let i = 0; i < 6; i++) {
-        const phase = ((t + i * 137) % 1500) / 1500;
-        if (phase > 0.2) continue;
-        const x = 20 + (i * 131) % (this.W - 40);
-        const y = 60 + (i * 247) % (this.H - 120);
-        const life = 1 - phase / 0.2;
-        const sz = 1 + Math.floor(life * 2);
-        g.fillRect(x, y, sz, sz);
-      }
-    }
-
-    accentLava(g, theme) {
-      // Rising embers + hot glow at bottom.
-      g.fillStyle(0xff4010, 0.18);
-      g.fillRect(0, this.H - 30, this.W, 30);
-      g.fillStyle(0xff7a20, 0.12);
-      g.fillRect(0, this.H - 12, this.W, 12);
-      const t = this.time.now * 0.001;
-      const rand = this._rng(1337);
-      for (let i = 0; i < 40; i++) {
-        const x0 = rand() * this.W;
-        const off = rand() * this.H;
-        const rise = (off + t * (30 + rand() * 40)) % this.H;
-        const y = this.H - rise;
-        const x = x0 + Math.sin(t * 2 + i) * 10;
-        g.fillStyle(i % 3 === 0 ? 0xfff080 : 0xff8a2a, 0.7);
-        g.fillRect(x, y, 2, 2);
-      }
-    }
-
-    accentForest(g, theme) {
-      // Drifting leaves + vines on walls.
-      const t = this.time.now * 0.0006;
-      const cam = this.cameraY || 0;
-      // Vines
-      g.fillStyle(0x1e4020, 0.7);
-      const rowH = 40;
-      const start = Math.floor(cam / rowH) * rowH;
-      for (let y = start; y < cam + this.H; y += rowH) {
-        const sy = y - cam;
-        const kink = Math.sin((y + t * 100) * 0.07) * 4;
-        g.fillRect(2 + kink, sy, 3, rowH);
-        g.fillRect(this.W - 5 - kink, sy, 3, rowH);
-      }
-      // Leaves
-      for (let i = 0; i < 24; i++) {
-        const x = ((i * 47 + t * 90) % (this.W + 40)) - 20;
-        const y = ((i * 93 + t * 70) % (this.H + 20)) - 10;
-        const col = i % 3 === 0 ? theme.accent : theme.top;
-        g.fillStyle(col, 0.75);
-        g.fillRect(x, y, 4, 2);
-        g.fillRect(x + 1, y + 2, 2, 2);
-      }
-    }
-
-    accentStorm(g, theme) {
-      // Drifting purple clouds + occasional lightning flash.
-      const t = this.time.now * 0.0005;
-      const rand = this._rng(9999);
-      g.fillStyle(0x9068d8, 0.18);
-      for (let i = 0; i < 10; i++) {
-        const x = ((rand() * this.W + t * 30 + i * 150) % (this.W + 200)) - 100;
-        const y = rand() * this.H;
-        g.fillRect(x, y, 120, 10);
-        g.fillRect(x + 10, y - 4, 100, 4);
-        g.fillRect(x + 20, y + 10, 80, 4);
-      }
-      // Lightning: bright short flash every few seconds
-      const flashPhase = (this.time.now % 4000) / 4000;
-      if (flashPhase < 0.04) {
-        g.fillStyle(0xffffff, (0.04 - flashPhase) * 15);
-        g.fillRect(0, 0, this.W, this.H);
-      }
-    }
-
-    accentSpace(g, theme) {
-      // Parallax starfield in three depths.
-      const cam = this.cameraY || 0;
-      const starsFor = (seedBase, count, par, col, a) => {
-        const rng = this._rng(seedBase);
-        g.fillStyle(col, a);
-        for (let i = 0; i < count; i++) {
-          const bx = rng() * this.W;
-          const by = rng() * (this.H * 2);
-          const y = ((by + cam * par) % (this.H + 40)) - 20;
-          g.fillRect(bx, y, 1 + (i % 2), 1 + (i % 2));
-        }
-      };
-      starsFor(101, 50, 0.1, 0x9070ff, 0.55);
-      starsFor(202, 35, 0.2, 0xffffff, 0.70);
-      starsFor(303, 18, 0.4, theme.accent, 0.95);
-      // Distant nebula smear
-      g.fillStyle(0x5020a0, 0.20);
-      g.fillRect(0, this.H * 0.35, this.W, 60);
-      g.fillStyle(0x7040c0, 0.15);
-      g.fillRect(0, this.H * 0.55, this.W, 40);
     }
 
     // ---------------------------------------------------------------
@@ -707,134 +408,58 @@
       this.input.keyboard.addCapture("LEFT,RIGHT,UP,DOWN,SPACE");
 
       // Axis buffer gets populated from keyboard / tilt / touch.
-      this.axisX = 0;
+      this.axisX = 0;        // -1, 0, +1 (or analog in [-1..1] from tilt)
       this.jumpPressed = false;
+      this.jumpQueued  = false;
 
-      // Jump buffering + coyote time (the "quick tap" feel of Icy Tower).
-      this.jumpBufferUntil = 0;      // time.now deadline after which a buffered jump expires
-      this.lastGroundTime  = 0;      // time.now when player was last grounded
-
-      // ---- Tilt (DeviceOrientation) with orientation correction ----
-      this.tilt = {
-        enabled: false,
-        x: 0,                        // screen-relative axis already in [-1..1]
-        invert: lsGetInt(LS_KEYS.tiltInvert, 0) === 1,
-      };
-      this.tiltBtn = document.getElementById("tilt-enable");
+      // ---- Tilt (DeviceOrientation) ----
+      this.tilt = { enabled: false, gamma: 0 };
       this.touchLeft = false;
       this.touchRight = false;
 
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       const needsPermission =
         typeof DeviceOrientationEvent !== "undefined" &&
         typeof DeviceOrientationEvent.requestPermission === "function";
 
-      // Convert beta/gamma into a screen-relative left/right axis,
-      // applying the current screen orientation so tilt stays consistent
-      // when the device is rotated.
-      const getScreenAngle = () => {
-        try {
-          if (screen.orientation && typeof screen.orientation.angle === "number") {
-            return screen.orientation.angle;
-          }
-        } catch (_) {}
-        if (typeof window.orientation === "number") return window.orientation;
-        return 0;
-      };
-
+      // Enable tilt handler directly on non-iOS; iOS needs a button tap.
       const installHandler = () => {
-        if (this.tilt._installed) return;
-        this.tilt._installed = true;
         window.addEventListener("deviceorientation", (ev) => {
-          if (ev.gamma == null || ev.beta == null) return;
-          const g = ev.gamma, b = ev.beta;
-          const angle = getScreenAngle();
-          // In each screen orientation, a different sensor axis maps to
-          // "tilt the screen left/right". Signs chosen so physically
-          // tilting the phone to the player's right always moves right.
-          let x;
-          switch (angle) {
-            case 90:   x =  b; break;    // landscape right
-            case -90:
-            case 270:  x = -b; break;    // landscape left
-            case 180:  x = -g; break;    // upside-down portrait
-            default:   x =  g; break;    // normal portrait (0)
-          }
-          if (this.tilt.invert) x = -x;
-          // Deadzone + normalise over +/- 25 degrees.
-          const mag = Math.max(0, Math.abs(x) - 3);
-          const sign = x >= 0 ? 1 : -1;
-          this.tilt.x = Phaser.Math.Clamp(sign * (mag / 22), -1, 1);
+          // gamma: left/right tilt in degrees (-90..90). Positive = right.
+          if (ev.gamma == null) return;
           this.tilt.enabled = true;
-          // If the tilt-enable button is still visible for any reason,
-          // hide it now that events are flowing.
-          if (this.tiltBtn && this.tiltBtn.style.display !== "none") {
-            this.tiltBtn.style.display = "none";
-          }
+          this.tilt.gamma = ev.gamma;
         }, true);
       };
 
-      // Try a silent install path first. If permission was already granted
-      // in a previous session we can re-grant without ever showing a prompt
-      // or the DOM button; the call still needs a user gesture though, so
-      // attach it to the first pointerdown/keydown.
-      const alreadyGranted = lsGetInt(LS_KEYS.tiltGranted, 0) === 1;
-
-      const silentArm = async () => {
-        if (!needsPermission) { installHandler(); return; }
-        try {
-          const res = await DeviceOrientationEvent.requestPermission();
-          if (res === "granted") {
-            installHandler();
-            lsSet(LS_KEYS.tiltGranted, "1");
-            if (this.tiltBtn) this.tiltBtn.style.display = "none";
-          } else {
-            // User declined this time - surface the visible button so they
-            // can try again if they change their mind.
-            if (this.tiltBtn) this.tiltBtn.style.display = "block";
-          }
-        } catch (_) {
-          // Call failed (e.g. no gesture) - fall back to visible button.
-          if (this.tiltBtn && !alreadyGranted) this.tiltBtn.style.display = "block";
-        }
-      };
-
       if (needsPermission) {
-        // Wire the visible button regardless; it's harmless when hidden.
-        if (this.tiltBtn) {
-          this.tiltBtn.onclick = async () => {
-            await silentArm();
-          };
-          if (!alreadyGranted) this.tiltBtn.style.display = "block";
+        const btn = document.getElementById("tilt-enable");
+        if (btn) {
+          btn.style.display = "block";
+          btn.addEventListener("click", async () => {
+            try {
+              const res = await DeviceOrientationEvent.requestPermission();
+              if (res === "granted") {
+                installHandler();
+                btn.style.display = "none";
+              }
+            } catch (_) { /* ignore */ }
+          }, { once: true });
         }
-        // First pointer/key gesture in the scene also tries to arm tilt.
-        const armOnce = () => {
-          this.input.off("pointerdown", armOnce);
-          this.input.keyboard.off("keydown", armOnce);
-          silentArm();
-        };
-        this.input.once("pointerdown", armOnce);
-        this.input.keyboard.once("keydown", armOnce);
       } else if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
-        installHandler();
-      } else {
-        // Desktop: still try to install so a laptop with an accelerometer works.
+        // Non-iOS mobile: just install
         installHandler();
       }
 
-      // ---- Touch fallback + jump-on-tap ----
-      // We tag the "game input" handler so it can skip when gameOver overlays
-      // are up (so taps on RESTART/SHARE don't also queue a jump).
-      const gameTap = (pointer) => {
-        if (this.gameOver) return;
-        // Buffer a jump for 150 ms - consumed instantly on landing.
-        this.jumpBufferUntil = this.time.now + 150;
-        // Remember which side was touched for the touch-steer fallback.
+      // ---- Touch fallback (always wired; harmless on desktop) ----
+      this.input.on("pointerdown", (pointer) => {
+        // Tap anywhere = jump (edge-triggered)
+        this.jumpQueued = true;
+        // Also remember which side was touched for fallback steering
         if (pointer.x < this.W / 2) this.touchLeft = true;
         else this.touchRight = true;
-      };
-      this.input.on("pointerdown", gameTap);
+      });
       this.input.on("pointermove", (pointer) => {
-        if (this.gameOver) return;
         if (pointer.isDown) {
           if (pointer.x < this.W / 2) { this.touchLeft = true;  this.touchRight = false; }
           else                        { this.touchRight = true; this.touchLeft = false;  }
@@ -850,13 +475,20 @@
       const k = this.keys;
       let ax = 0;
 
+      // Keyboard
       if (k.left.isDown  || k.a.isDown) ax -= 1;
       if (k.right.isDown || k.d.isDown) ax += 1;
 
+      // Tilt (overrides if active and no keyboard input)
       if (ax === 0 && this.tilt.enabled) {
-        ax = this.tilt.x;
+        // Dead zone + linear ramp out to +/- 25 degrees
+        const g = this.tilt.gamma;
+        if (Math.abs(g) > 3) {
+          ax = Phaser.Math.Clamp(g / 25, -1, 1);
+        }
       }
 
+      // Touch fallback if no tilt + no keys
       if (ax === 0 && !this.tilt.enabled) {
         if (this.touchLeft)  ax -= 1;
         if (this.touchRight) ax += 1;
@@ -864,22 +496,13 @@
 
       this.axisX = ax;
 
-      // Keyboard jump buffers into the same jumpBufferUntil window as taps.
-      if (
+      // Edge-triggered jump from keyboard + queued from touch
+      this.jumpPressed =
         Phaser.Input.Keyboard.JustDown(k.up) ||
         Phaser.Input.Keyboard.JustDown(k.w)  ||
-        Phaser.Input.Keyboard.JustDown(k.space)
-      ) {
-        this.jumpBufferUntil = this.time.now + 150;
-      }
-
-      // Fire a jump if: we have a live buffered press AND we can jump
-      // (on ground, or inside the 80 ms coyote-time window).
-      const now = this.time.now;
-      const buffered  = now <= this.jumpBufferUntil;
-      const coyoteOk  = !this.player.onGround && (now - this.lastGroundTime) <= 80;
-      this.jumpPressed = buffered && (this.player.onGround || coyoteOk);
-      if (this.jumpPressed) this.jumpBufferUntil = 0;
+        Phaser.Input.Keyboard.JustDown(k.space) ||
+        this.jumpQueued;
+      this.jumpQueued = false;
     }
 
     // ---------------------------------------------------------------
@@ -909,24 +532,7 @@
         currentFloor: 0,
         highestFloor: 0,
         jumpStartFloor: 0,
-        // Flip / somersault
-        rotation: 0,             // current body rotation in radians
-        rotRate: 0,              // rad/s while airborne (0 = no flip)
-        jumpSpeedFrac: 0,        // |vx|/maxSpeed at the instant of takeoff
       };
-      this.bestFlips = lsGetInt(LS_KEYS.bestFlips, 0);
-      this.bestFlipsThisRun = 0;
-
-      // Pull selected character and bind its drawer.
-      try {
-        const savedId = localStorage.getItem(LS_KEYS.character) || "climber";
-        const entry = CHARACTERS.find(c => c.id === savedId) || CHARACTERS[0];
-        this.characterId = entry.id;
-        this.characterDrawer = this[entry.drawFn] || this.drawCharClimber;
-      } catch (_) {
-        this.characterId = "climber";
-        this.characterDrawer = this.drawCharClimber;
-      }
 
       // Floors are authored in world-space; spawn them once.
       this.floors = [];
@@ -952,8 +558,6 @@
       this.gameOver = false;
       this.gameOverOverlay = null;
       this.runStartTime = this.time.now;
-      this.hintUntil = this.time.now + 5500; // hint auto-hides
-      this.hintLabel = null;
 
       // Combo + score
       this.score = 0;
@@ -991,18 +595,13 @@
     // ---------------------------------------------------------------
     floorY(n) { return this.FLOOR0_Y - n * CFG.FLOOR_HEIGHT; }
 
-    // Width fraction uses the current level's widthFactor with a gentle
-    // interpolation toward the next level's factor so the narrowing is
-    // smooth rather than stepped.
+    // Width fraction curve based on spec: 70% base at floor 0,
+    // drifting to ~40% at floor 200, ~25% at floor 500+.
     floorWidthFrac(n) {
       if (n <= 0) return 1.0;
-      const idx = levelIndexFor(n);
-      const cur = LEVELS[idx];
-      const next = LEVELS[idx + 1];
-      if (!next) return 0.70 * cur.widthFactor;
-      const t = Phaser.Math.Clamp((n - cur.floor) / (next.floor - cur.floor), 0, 1);
-      const w = Phaser.Math.Linear(cur.widthFactor, next.widthFactor, t);
-      return 0.70 * w;
+      if (n < 200) return 0.70 - 0.30 * (n / 200);
+      if (n < 500) return 0.40 - 0.15 * ((n - 200) / 300);
+      return Math.max(0.15, 0.25 - (n - 500) * 0.0002);
     }
 
     spawnFloor(n) {
@@ -1031,94 +630,109 @@
       this.maxSpawnedFloor = n;
     }
 
-    // Theme for a given floor number is driven by the level table.
+    // Full theme palette per 100-floor band.
+    // top/side = floor surfaces, wall = side walls, bg1/bg2 = sky gradient,
+    // accent = particles, glintA/B = wall hatching tones.
     floorTheme(n) {
-      return THEMES[levelFor(n).themeKey];
-    }
-
-    // Smoothly blend between current and next level's theme over the last
-    // 8 floors before a level boundary.
-    currentTheme() {
-      const n = this.player ? this.player.highestFloor : 0;
-      const idx = levelIndexFor(n);
-      const cur = LEVELS[idx];
-      const next = LEVELS[idx + 1];
-      const a = THEMES[cur.themeKey];
-      if (!next) return a;
-      const floorsLeft = next.floor - n;
-      if (floorsLeft > 8) return a;
-      const t = 1 - floorsLeft / 8;
-      const b = THEMES[next.themeKey];
+      if (n < 100) return {
+        top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c,
+        bg1: 0x0b1d3a, bg2: 0x1a3d6c,
+        accent: 0xe8faff, glint: 0xd3f0ff,
+        name: "ICE",
+      };
+      if (n < 200) return {
+        top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x2e2e34,
+        bg1: 0x14141a, bg2: 0x2a2a32,
+        accent: 0xe0e0e0, glint: 0xa8a8a8,
+        name: "STONE",
+      };
+      if (n < 300) return {
+        top: 0xffb27a, side: 0xcc3a0a, wall: 0x5a1400,
+        bg1: 0x200500, bg2: 0x501200,
+        accent: 0xffd27a, glint: 0xff7a30,
+        name: "LAVA",
+      };
+      if (n < 400) return {
+        top: 0xb8f0a8, side: 0x2a7a38, wall: 0x14401e,
+        bg1: 0x061505, bg2: 0x0f2e18,
+        accent: 0xf0ffe0, glint: 0x6acb7a,
+        name: "FOREST",
+      };
       return {
-        top:    lerpColor(a.top,    b.top,    t),
-        side:   lerpColor(a.side,   b.side,   t),
-        wall:   lerpColor(a.wall,   b.wall,   t),
-        bg1:    lerpColor(a.bg1,    b.bg1,    t),
-        bg2:    lerpColor(a.bg2,    b.bg2,    t),
-        accent: lerpColor(a.accent, b.accent, t),
-        glint:  lerpColor(a.glint,  b.glint,  t),
-        name:   a.name,
-        accentFn: a.accentFn,
+        top: 0xd8c0ff, side: 0x5e3fa0, wall: 0x261048,
+        bg1: 0x04001a, bg2: 0x170a44,
+        accent: 0xfff0ff, glint: 0xa47fff,
+        name: "SPACE",
       };
     }
 
-    // Draws the player procedurally in local coordinates centered on
-    // (0,0) = body center. Position + rotation are applied via playerGfx
-    // transform so mid-air flips just work.
+    // Linearly blend two themes at the band boundary for smooth transitions.
+    // Blend ramps over the last/first 10 floors of each band.
+    currentTheme() {
+      const n = this.player ? this.player.highestFloor : 0;
+      const band = Math.floor(n / 100);
+      const intoBand = n - band * 100;
+      if (intoBand < 90) return this.floorTheme(n);
+      // Blend toward next band
+      const t = (intoBand - 90) / 10;
+      const a = this.floorTheme(n);
+      const b = this.floorTheme(band * 100 + 100);
+      return {
+        top:    lerpColor(a.top, b.top, t),
+        side:   lerpColor(a.side, b.side, t),
+        wall:   lerpColor(a.wall, b.wall, t),
+        bg1:    lerpColor(a.bg1, b.bg1, t),
+        bg2:    lerpColor(a.bg2, b.bg2, t),
+        accent: lerpColor(a.accent, b.accent, t),
+        glint:  lerpColor(a.glint, b.glint, t),
+        name: a.name,
+      };
+    }
+
+    // Pixel-art arctic climber drawn procedurally. Redraws each frame.
     drawPlayer() {
       const p = this.player;
       const g = this.playerGfx;
       g.clear();
 
-      // Squash/stretch + facing lean (only on ground - while airborne
-      // the body itself rotates so no lean is needed).
-      const crouch = p.crouchT;
+      const cx = p.x;
+      const feet = p.y;
+      const facing = p.facing;
+
+      // Base rectangle origin (top-left of body bounding box)
+      const bx = cx - p.w / 2;
+      const by = feet - p.h;
+
+      // Crouch squash on land
+      const crouch = p.crouchT; // 0..1
       const squash = 1 - crouch * 0.2;
       const stretch = p.onGround ? 1 : 1.05;
       const h = p.h * squash * stretch;
-      const w = p.w;
+      const yTop = feet - h;
 
-      const airborne = !p.onGround;
+      // Running lean when going fast on ground
       const speedFrac = Phaser.Math.Clamp(Math.abs(p.vx) / CFG.MAX_H_SPEED, 0, 1);
-      const lean = p.onGround ? p.facing * speedFrac * 4 : 0;
+      const lean = p.onGround ? facing * speedFrac * 4 : 0;
 
-      // Body-center is the rotation pivot.
-      g.x = p.x;
-      g.y = p.y - h / 2;
-      g.rotation = p.rotation;
-      g.scaleX = p.facing < 0 ? -1 : 1; // mirror when facing left
-
-      // Origin inside the local frame: body center at (0,0).
-      // Draw everything relative to that.
-      const draw = this.characterDrawer || this.drawCharClimber;
-      draw.call(this, g, { w, h, lean, airborne, speedFrac, runPhase: p.runPhase, now: this.time.now, facing: p.facing });
-    }
-
-    // ----- Character drawers (local coords centered on body) -----
-    // Only the arctic climber is defined now. Phase 13 adds the roster.
-    drawCharClimber(g, o) {
-      const { w, h, lean, airborne, speedFrac, runPhase, now } = o;
-      const halfH = h / 2;
-
-      // Top-left of bounding box in local coords
-      const bx = -w / 2;
-      const by = -halfH;
-
-      // Legs
+      // --- Legs ---
+      // Ground + moving: legs alternate via runPhase. Airborne: tuck (both up).
+      const airborne = !p.onGround;
       const legW = 5;
       const legH = Math.max(4, h * 0.28);
-      const legY = by + h - legH;
-      const legSpread = w * 0.25;
-      const legLX = -legSpread - legW / 2;
-      const legRX =  legSpread - legW / 2;
+      const legY = yTop + h - legH;
+      const legSpread = p.w * 0.25;
+      const legLX = cx - legSpread - legW / 2;
+      const legRX = cx + legSpread - legW / 2;
 
-      g.fillStyle(0x2b2b30, 1);
+      g.fillStyle(0x2b2b30, 1); // dark pants
       if (airborne) {
+        // Tuck - knees up
         const tuckY = legY - legH * 0.6;
         g.fillRect(legLX, tuckY, legW, legH);
         g.fillRect(legRX, tuckY, legW, legH);
-      } else if (speedFrac > 0.05) {
-        const s = Math.sin(runPhase);
+      } else if (Math.abs(p.vx) > 20) {
+        // Running: alternate offsets
+        const s = Math.sin(p.runPhase);
         const off = s * legH * 0.4;
         g.fillRect(legLX, legY - off, legW, legH);
         g.fillRect(legRX, legY + off, legW, legH);
@@ -1127,7 +741,7 @@
         g.fillRect(legRX, legY, legW, legH);
       }
 
-      // Boots
+      // --- Boots ---
       g.fillStyle(0x111318, 1);
       const bootH = 3;
       if (airborne) {
@@ -1139,343 +753,64 @@
         g.fillRect(legRX - 1, legY + legH - bootH, legW + 2, bootH);
       }
 
-      // Parka
+      // --- Parka body ---
       const bodyH = h * 0.46;
-      const bodyY = by + h * 0.30;
+      const bodyY = yTop + h * 0.30;
       const bodyX = bx + lean;
       g.fillStyle(0x2e84d6, 1);
-      g.fillRect(bodyX, bodyY, w, bodyH);
+      g.fillRect(bodyX, bodyY, p.w, bodyH);
+      // belt / fur trim bottom
       g.fillStyle(0xffffff, 1);
-      g.fillRect(bodyX, bodyY + bodyH - 3, w, 3);
+      g.fillRect(bodyX, bodyY + bodyH - 3, p.w, 3);
 
-      // Arms
+      // --- Arms ---
       g.fillStyle(0x2067b0, 1);
       const armW = 4, armH = bodyH * 0.8;
       if (airborne) {
+        // Arms up for jump
         g.fillRect(bodyX - armW + 1, bodyY - armH * 0.4, armW, armH);
-        g.fillRect(bodyX + w - 1,    bodyY - armH * 0.4, armW, armH);
+        g.fillRect(bodyX + p.w - 1,  bodyY - armH * 0.4, armW, armH);
       } else {
-        const armSwing = speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 4 : 0;
+        const armSwing = Math.abs(p.vx) > 20 ? Math.sin(p.runPhase + Math.PI) * 4 : 0;
         g.fillRect(bodyX - armW + 1, bodyY + armSwing, armW, armH);
-        g.fillRect(bodyX + w - 1,    bodyY - armSwing, armW, armH);
+        g.fillRect(bodyX + p.w - 1,  bodyY - armSwing, armW, armH);
       }
 
-      // Head + beanie + goggles
-      const headW = w - 4;
+      // --- Head (with goggles + beanie) ---
+      const headW = p.w - 4;
       const headH = h * 0.30;
       const headX = bx + 2 + lean;
-      const headY = by;
+      const headY = yTop;
+      // Skin
       g.fillStyle(0xf2d1a8, 1);
       g.fillRect(headX, headY + 4, headW, headH - 4);
+      // Beanie
       g.fillStyle(0xd03030, 1);
       g.fillRect(headX, headY, headW, 6);
       g.fillStyle(0xffffff, 1);
-      g.fillRect(headX, headY - 2, 4, 3);
-      g.fillRect(headX + 4, headY - 0.5, headW - 4, 1.5);
+      g.fillRect(headX, headY - 2, 4, 3);   // pom
+      g.fillRect(headX + 4, headY - 0.5, headW - 4, 1.5); // band
+      // Goggles (orange lens)
       g.fillStyle(0x1a1a1a, 1);
       g.fillRect(headX, headY + 7, headW, 4);
       g.fillStyle(0xff9a3d, 1);
-      g.fillRect(headX + headW - 7, headY + 8, 5, 2);  // lens always on "forward" side (scaleX handles facing)
+      if (facing >= 0) {
+        g.fillRect(headX + headW - 7, headY + 8, 5, 2);
+      } else {
+        g.fillRect(headX + 2, headY + 8, 5, 2);
+      }
 
       // Scarf flutter
       g.fillStyle(0xffdc4a, 1);
       const scarfY = bodyY + 2;
-      const flutter = Math.sin(now * 0.02) * 2;
-      g.fillRect(bodyX - 3, scarfY, 3, 4);
-      g.fillRect(bodyX - 5, scarfY + 2 + flutter, 3, 3);
-    }
-
-    // ---- Penguin: black body, white tummy, orange beak + feet. Waddles.
-    drawCharPenguin(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const halfH = h / 2;
-      const bx = -w / 2, by = -halfH;
-      const waddle = !airborne && speedFrac > 0.05 ? Math.sin(runPhase * 0.8) * 2 : 0;
-
-      // Feet
-      g.fillStyle(0xff8a2a, 1);
-      if (airborne) {
-        g.fillRect(-w * 0.4, by + h - 10, w * 0.35, 4);
-        g.fillRect( w * 0.05, by + h - 10, w * 0.35, 4);
+      const flutter = Math.sin((this.time.now + cx) * 0.02) * 2;
+      if (facing >= 0) {
+        g.fillRect(bodyX - 3, scarfY, 3, 4);
+        g.fillRect(bodyX - 5, scarfY + 2 + flutter, 3, 3);
       } else {
-        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
-        g.fillRect(bx + 1,         by + h - 5 - s, w * 0.45, 4);
-        g.fillRect(bx + w - w*0.45 - 1, by + h - 5 + s, w * 0.45, 4);
+        g.fillRect(bodyX + p.w, scarfY, 3, 4);
+        g.fillRect(bodyX + p.w + 2, scarfY + 2 + flutter, 3, 3);
       }
-
-      // Body - teardrop shape approximated with two rects
-      g.fillStyle(0x0d0d14, 1);
-      g.fillRect(bx, by + h * 0.20 + waddle, w, h * 0.70);
-      // Rounded top via two shoulder corners
-      g.fillRect(bx + 2, by + h * 0.13 + waddle, w - 4, h * 0.10);
-      // White tummy
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(bx + 4, by + h * 0.30 + waddle, w - 8, h * 0.45);
-
-      // Wings (flap when airborne)
-      g.fillStyle(0x0d0d14, 1);
-      const flap = airborne ? Math.sin(now * 0.025) * 4 : 0;
-      g.fillRect(bx - 2, by + h * 0.30 + waddle - flap, 4, h * 0.40);
-      g.fillRect(bx + w - 2, by + h * 0.30 + waddle + flap, 4, h * 0.40);
-
-      // Head (slightly narrower than body)
-      g.fillStyle(0x0d0d14, 1);
-      const hw = w * 0.70, hx = -hw / 2, hy = by + 2 + waddle;
-      g.fillRect(hx, hy, hw, h * 0.22);
-
-      // White cheek
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(hx + 2, hy + 4, hw - 4, 4);
-
-      // Eyes
-      g.fillStyle(0x000000, 1);
-      g.fillRect(hx + 3, hy + 5, 2, 2);
-      g.fillRect(hx + hw - 5, hy + 5, 2, 2);
-
-      // Beak (points forward = +x in local, scaleX handles facing)
-      g.fillStyle(0xff8a2a, 1);
-      g.fillRect(hw / 2 - 1, hy + h * 0.12, 5, 3);
-      g.fillStyle(0xcc5a10, 1);
-      g.fillRect(hw / 2 - 1, hy + h * 0.12 + 3, 3, 1);
-    }
-
-    // ---- Dragon: green scales, flapping wings, horned head, tail.
-    drawCharDragon(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const bx = -w / 2, by = -h / 2;
-      const tailWag = Math.sin(now * 0.01) * 2 + (speedFrac * 3);
-
-      // Tail (behind = -x). Pointed.
-      g.fillStyle(0x2a9030, 1);
-      g.fillRect(bx - 8,  by + h * 0.55 + tailWag, 10, 4);
-      g.fillRect(bx - 12, by + h * 0.58 + tailWag, 5,  3);
-      g.fillStyle(0xfff080, 1);
-      g.fillRect(bx - 14, by + h * 0.60 + tailWag, 3,  2);
-
-      // Legs
-      g.fillStyle(0x1a6a20, 1);
-      if (airborne) {
-        g.fillRect(bx + 3, by + h - 7, 5, 7);
-        g.fillRect(bx + w - 8, by + h - 7, 5, 7);
-      } else {
-        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
-        g.fillRect(bx + 3, by + h - 9 - s, 5, 9);
-        g.fillRect(bx + w - 8, by + h - 9 + s, 5, 9);
-      }
-
-      // Belly (lighter green/yellow)
-      g.fillStyle(0x88e080, 1);
-      g.fillRect(bx + 2, by + h * 0.50, w - 4, h * 0.35);
-
-      // Body
-      g.fillStyle(0x3ac050, 1);
-      g.fillRect(bx, by + h * 0.25, w, h * 0.50);
-
-      // Back spikes
-      g.fillStyle(0xfff080, 1);
-      g.fillRect(bx + w * 0.2, by + h * 0.22, 3, 3);
-      g.fillRect(bx + w * 0.5, by + h * 0.22, 3, 3);
-      g.fillRect(bx + w * 0.8, by + h * 0.22, 3, 3);
-
-      // Wings (flap when airborne)
-      const flap = airborne ? Math.sin(now * 0.03) * 4 : 1;
-      g.fillStyle(0x1a6a20, 1);
-      g.fillRect(bx - 2, by + h * 0.22 - 2 - flap, 10, 3);
-      g.fillRect(bx + w - 8, by + h * 0.22 - 2 - flap, 10, 3);
-      g.fillStyle(0x88e080, 1);
-      g.fillRect(bx - 2, by + h * 0.22 - flap, 10, 2);
-      g.fillRect(bx + w - 8, by + h * 0.22 - flap, 10, 2);
-
-      // Head
-      g.fillStyle(0x3ac050, 1);
-      g.fillRect(bx + w * 0.45, by + 2, w * 0.55, h * 0.30);
-      // Snout
-      g.fillRect(bx + w * 0.85, by + 8, w * 0.30, 5);
-      // Horns
-      g.fillStyle(0xfff080, 1);
-      g.fillRect(bx + w * 0.55, by - 2, 2, 4);
-      g.fillRect(bx + w * 0.70, by - 2, 2, 4);
-      // Eye
-      g.fillStyle(0xffff40, 1);
-      g.fillRect(bx + w * 0.80, by + 6, 3, 3);
-      g.fillStyle(0x000000, 1);
-      g.fillRect(bx + w * 0.81, by + 7, 2, 2);
-      // Nostril
-      g.fillStyle(0x000000, 1);
-      g.fillRect(bx + w * 1.05, by + 9, 2, 1);
-    }
-
-    // ---- T-Rex: orange body, tiny arms, big tail, big head.
-    drawCharTrex(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const bx = -w / 2, by = -h / 2;
-      const bob = !airborne && speedFrac > 0.05 ? Math.sin(runPhase) * 2 : 0;
-
-      // Tail curving back
-      g.fillStyle(0xc05010, 1);
-      g.fillRect(bx - 10, by + h * 0.55, 12, 5);
-      g.fillRect(bx - 16, by + h * 0.60, 7,  4);
-      g.fillRect(bx - 20, by + h * 0.65, 5,  3);
-
-      // Legs (powerful)
-      g.fillStyle(0xa04010, 1);
-      if (airborne) {
-        g.fillRect(bx + 2, by + h - 9, 6, 9);
-        g.fillRect(bx + w - 10, by + h - 9, 6, 9);
-      } else {
-        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 4 : 0;
-        g.fillRect(bx + 2, by + h - 11 - s, 6, 11);
-        g.fillRect(bx + w - 10, by + h - 11 + s, 6, 11);
-      }
-      // Claws
-      g.fillStyle(0xffe080, 1);
-      g.fillRect(bx + 2, by + h - 2, 2, 2);
-      g.fillRect(bx + w - 10, by + h - 2, 2, 2);
-
-      // Body
-      g.fillStyle(0xe07020, 1);
-      g.fillRect(bx, by + h * 0.30 + bob, w, h * 0.55);
-      // Belly lighter
-      g.fillStyle(0xffb060, 1);
-      g.fillRect(bx + 2, by + h * 0.55 + bob, w - 4, h * 0.28);
-
-      // Tiny arms (dangle in front)
-      g.fillStyle(0xc05010, 1);
-      g.fillRect(bx + w * 0.65, by + h * 0.44 + bob, 3, 4);
-
-      // Head - big and boxy, points forward
-      g.fillStyle(0xe07020, 1);
-      g.fillRect(bx + w * 0.35, by + 2 + bob, w * 0.75, h * 0.32);
-      // Jaw teeth
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(bx + w * 0.90, by + 14 + bob, 2, 2);
-      g.fillRect(bx + w * 0.96, by + 14 + bob, 2, 2);
-      g.fillRect(bx + w * 1.02, by + 14 + bob, 2, 2);
-      // Eye
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(bx + w * 0.70, by + 6 + bob, 4, 3);
-      g.fillStyle(0x000000, 1);
-      g.fillRect(bx + w * 0.72, by + 7 + bob, 2, 2);
-    }
-
-    // ---- Yeti: bigger white furry body, heavy stance.
-    drawCharYeti(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      // Yeti is a touch wider
-      const yw = w + 4;
-      const bx = -yw / 2, by = -h / 2;
-
-      // Legs (thick)
-      g.fillStyle(0x888a92, 1);
-      if (airborne) {
-        g.fillRect(bx + 3, by + h - 9, 8, 9);
-        g.fillRect(bx + yw - 11, by + h - 9, 8, 9);
-      } else {
-        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
-        g.fillRect(bx + 3, by + h - 10 - s, 8, 10);
-        g.fillRect(bx + yw - 11, by + h - 10 + s, 8, 10);
-      }
-      // Feet
-      g.fillStyle(0x3a2a1a, 1);
-      g.fillRect(bx + 2, by + h - 3, 9, 3);
-      g.fillRect(bx + yw - 11, by + h - 3, 9, 3);
-
-      // Fur body
-      g.fillStyle(0xe4eef4, 1);
-      g.fillRect(bx, by + h * 0.25, yw, h * 0.65);
-      // Fur tufts
-      g.fillStyle(0xffffff, 1);
-      for (let i = 0; i < 5; i++) {
-        g.fillRect(bx + 2 + i * 5, by + h * 0.30, 3, 2);
-      }
-
-      // Arms (thick) - hanging
-      g.fillStyle(0xe4eef4, 1);
-      const armSwing = !airborne && speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 3 : 0;
-      if (airborne) {
-        g.fillRect(bx - 2, by + h * 0.30, 6, h * 0.45);
-        g.fillRect(bx + yw - 4, by + h * 0.30, 6, h * 0.45);
-      } else {
-        g.fillRect(bx - 2, by + h * 0.30 + armSwing, 6, h * 0.50);
-        g.fillRect(bx + yw - 4, by + h * 0.30 - armSwing, 6, h * 0.50);
-      }
-
-      // Paws (dark)
-      g.fillStyle(0x3a2a1a, 1);
-      g.fillRect(bx - 2, by + h * 0.72 + armSwing, 6, 4);
-      g.fillRect(bx + yw - 4, by + h * 0.72 - armSwing, 6, 4);
-
-      // Head (big)
-      g.fillStyle(0xe4eef4, 1);
-      const hw = yw - 4, hx = -hw / 2, hy = by;
-      g.fillRect(hx, hy, hw, h * 0.28);
-      // Face lighter area
-      g.fillStyle(0xf5f5f5, 1);
-      g.fillRect(hx + 2, hy + 6, hw - 4, h * 0.18);
-      // Eyes (brown)
-      g.fillStyle(0x5a3018, 1);
-      g.fillRect(hx + 4, hy + 8, 3, 3);
-      g.fillRect(hx + hw - 7, hy + 8, 3, 3);
-      // Nose
-      g.fillStyle(0x3a2a1a, 1);
-      g.fillRect(hx + hw / 2 - 1, hy + 13, 3, 2);
-      // Mouth
-      g.fillRect(hx + hw / 2 - 2, hy + h * 0.20, 5, 1);
-    }
-
-    // ---- Robot: chrome body, glowing visor, antenna.
-    drawCharRobot(g, o) {
-      const { w, h, airborne, speedFrac, runPhase, now } = o;
-      const bx = -w / 2, by = -h / 2;
-
-      // Legs (square, piston-like)
-      g.fillStyle(0x505864, 1);
-      if (airborne) {
-        g.fillRect(bx + 3, by + h - 8, 5, 8);
-        g.fillRect(bx + w - 8, by + h - 8, 5, 8);
-      } else {
-        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 2 : 0;
-        g.fillRect(bx + 3, by + h - 10 - s, 5, 10);
-        g.fillRect(bx + w - 8, by + h - 10 + s, 5, 10);
-      }
-      // Feet
-      g.fillStyle(0x22252c, 1);
-      g.fillRect(bx + 1, by + h - 3, 9, 3);
-      g.fillRect(bx + w - 10, by + h - 3, 9, 3);
-
-      // Body (chrome + panel lines)
-      g.fillStyle(0xb0b4bc, 1);
-      g.fillRect(bx, by + h * 0.28, w, h * 0.55);
-      // Panel line
-      g.fillStyle(0x707680, 1);
-      g.fillRect(bx + 2, by + h * 0.50, w - 4, 1);
-      // Chest light
-      const pulse = 0.4 + 0.3 * Math.abs(Math.sin(now * 0.005));
-      g.fillStyle(0x00e0ff, pulse + 0.3);
-      g.fillRect(bx + w / 2 - 2, by + h * 0.38, 4, 3);
-
-      // Arms (stiff)
-      g.fillStyle(0x909398, 1);
-      const armMove = !airborne && speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 3 : 0;
-      g.fillRect(bx - 3, by + h * 0.30 + armMove, 4, h * 0.42);
-      g.fillRect(bx + w - 1, by + h * 0.30 - armMove, 4, h * 0.42);
-
-      // Head (dome + antenna)
-      g.fillStyle(0xcdd1d8, 1);
-      g.fillRect(bx + 2, by + 2, w - 4, h * 0.22);
-      // Antenna
-      g.fillStyle(0x707680, 1);
-      g.fillRect(bx + w / 2 - 0.5, by - 4, 1, 4);
-      g.fillStyle(0xff3060, 1);
-      g.fillRect(bx + w / 2 - 1.5, by - 6, 3, 2);
-      // Visor
-      g.fillStyle(0x000000, 1);
-      g.fillRect(bx + 3, by + 7, w - 6, 4);
-      g.fillStyle(0x00e0ff, 0.95);
-      g.fillRect(bx + 4, by + 8, w - 8, 2);
-      // Visor glint
-      g.fillStyle(0xffffff, 1);
-      g.fillRect(bx + w - 7, by + 8, 2, 1);
     }
 
     // ---------------------------------------------------------------
@@ -1499,23 +834,11 @@
       }
 
       // ---- Jump ----
-      if (this.jumpPressed && (p.onGround || (this.time.now - this.lastGroundTime) <= 80)) {
+      if (this.jumpPressed && p.onGround) {
         const speedFrac = Math.abs(p.vx) / CFG.MAX_H_SPEED;
         p.vy = -(CFG.BASE_JUMP + speedFrac * CFG.BONUS_JUMP);
         p.onGround = false;
         p.jumpStartFloor = p.currentFloor;
-        p.jumpSpeedFrac = speedFrac;
-        // Somersault mid-air when launched at high speed. Rotation sign
-        // follows the direction of travel so the flip looks "forward".
-        if (speedFrac >= 0.7) {
-          const dir = Math.sign(p.vx) || 1;
-          // 2.2 full turns per second at max speed, 0 turns at 70% speed.
-          const turnsPerSec = 2.2 * (speedFrac - 0.7) / 0.3;
-          p.rotRate = dir * Math.PI * 2 * turnsPerSec;
-        } else {
-          p.rotRate = 0;
-        }
-        p.rotation = 0;
         this.audio.jump(speedFrac);
       }
 
@@ -1532,20 +855,6 @@
 
       // ---- Wall collision & bounce ----
       this.resolveWallCollision();
-
-      // Track the last moment the player was grounded, used by coyote time.
-      if (p.onGround) this.lastGroundTime = this.time.now;
-
-      // ---- Somersault rotation while airborne ----
-      if (!p.onGround && p.rotRate !== 0) {
-        p.rotation += p.rotRate * dt;
-      } else if (p.onGround) {
-        // Ease rotation to 0 on the ground so stance is upright.
-        if (p.rotation !== 0) {
-          const ease = Math.sign(p.rotation) * Math.min(Math.abs(p.rotation), Math.PI * 6 * dt);
-          p.rotation -= ease;
-        }
-      }
 
       // ---- Animation state ----
       if (p.onGround && Math.abs(p.vx) > 20) {
@@ -1646,29 +955,6 @@
       this.spawnLandParticles(p.x, floor.y, this.floorTheme(floor.n));
       const impact = Phaser.Math.Clamp((p.vy === 0 ? 0 : 0.5) + (p.prevY > floor.y ? (p.prevY - floor.y) / 200 : 0), 0, 1);
       this.audio.land(impact);
-      // Microinteraction: subtle camera shake on high-impact landings.
-      if (impact > 0.55) this.shakeCamera(0.004 + (impact - 0.55) * 0.01, 120);
-
-      // --- Flip / somersault reward ---
-      const flips = Math.max(0, Math.floor(Math.abs(p.rotation) / (Math.PI * 2)));
-      let flipBonus = 0;
-      if (flips > 0) {
-        const mult = 1 + this.combo.count * 0.5;
-        flipBonus = Math.round(100 * flips * mult);
-        this.score += flipBonus;
-        if (flips > this.bestFlipsThisRun) this.bestFlipsThisRun = flips;
-        if (flips > this.bestFlips) {
-          this.bestFlips = flips;
-          lsSet(LS_KEYS.bestFlips, this.bestFlips);
-        }
-        this.spawnFlipPopup(flips, flipBonus);
-        // Audio: rising pair of pings scaled to flip count
-        this.audio.comboReward(Math.min(4, flips));
-      }
-      // Reset rotation & rotation rate now that the jump is done.
-      p.rotation = 0;
-      p.rotRate = 0;
-      p.jumpSpeedFrac = 0;
 
       const floorsClearedSinceJump = toFloor - fromFloor;
 
@@ -1680,13 +966,6 @@
         this.score += Math.round(CFG.POINTS_PER_FLOOR * gained * mult);
         const prevBest = p.highestFloor;
         p.highestFloor = toFloor;
-
-        // Level-up detection (fires before milestones so banners stack nicely)
-        const prevLevelIdx = levelIndexFor(prevBest);
-        const newLevelIdx  = levelIndexFor(toFloor);
-        if (newLevelIdx > prevLevelIdx) {
-          this.triggerLevelUp(LEVELS[newLevelIdx]);
-        }
 
         // Milestone flashes
         for (let m = 0; m < CFG.MILESTONES.length; m++) {
@@ -1709,46 +988,18 @@
       }
 
       // --- Combo update ---
-      // Combo continues if we cleared >=2 floors OR completed at least 1 flip.
-      const qualifying = floorsClearedSinceJump >= CFG.COMBO_MIN_FLOORS || flips > 0;
-      if (qualifying) {
+      // "Combo ends: any 1-floor jump, falling to a lower floor, or meter runs out"
+      if (floorsClearedSinceJump >= CFG.COMBO_MIN_FLOORS) {
         this.combo.count += 1;
         this.combo.timer = CFG.COMBO_TIMEOUT_MS / 1000;
         if (this.combo.count > this.combo.longest) {
           this.combo.longest = this.combo.count;
         }
         this.maybeShowComboReward(this.combo.count);
-        this.pulseCombo();
       } else {
+        // Anything less than 2 floors (or a net drop) breaks any streak.
         if (this.combo.count > 0) this.breakCombo();
       }
-    }
-
-    spawnFlipPopup(flips, bonus) {
-      const word = flips === 1 ? "1 FLIP" : `${flips} FLIPS`;
-      const color = flips >= 3 ? "#ff5cf0" : flips >= 2 ? "#ffaa00" : "#fff56a";
-      const text = `${word}  +${bonus}`;
-      const p = this.player;
-      // World-space popup near the character so it reads as a flip reward.
-      const wx = p.x;
-      const wy = p.y - p.h - 10;
-      const label = this.add.text(wx, wy, text, {
-        fontFamily: "Courier New, monospace",
-        fontSize: Math.round(Math.min(this.W, this.H) * 0.05) + "px",
-        fontStyle: "bold",
-        color,
-        stroke: "#000",
-        strokeThickness: 5,
-      }).setOrigin(0.5).setDepth(11);
-      this.tweens.add({
-        targets: label,
-        y: wy - 40,
-        alpha: { from: 1, to: 0 },
-        scale: { from: 0.6, to: 1.1 },
-        duration: 900,
-        ease: "Sine.Out",
-        onComplete: () => label.destroy(),
-      });
     }
 
     breakCombo() {
@@ -1783,55 +1034,31 @@
     spawnRewardPopup(text) {
       const cx = this.W / 2;
       const cy = this.H * 0.38;
-      const S = Math.min(this.W, this.H);
-      const size = Math.round(S * 0.12);
-      const color = tierColorFor(this.combo.count);
-      const colorCss = tierColorCssFor(this.combo.count);
-
-      // Shockwave ring behind the text
-      const ring = this.add.graphics().setScrollFactor(0).setDepth(1690);
-      const drawRing = (r, a) => {
-        ring.clear();
-        ring.lineStyle(5, color, a);
-        ring.strokeCircle(cx, cy, r);
-        ring.lineStyle(2, 0xffffff, a * 0.7);
-        ring.strokeCircle(cx, cy, r * 0.95);
-      };
-      drawRing(4, 0.9);
-      this.tweens.addCounter({
-        from: 4, to: S * 0.4, duration: 550, ease: "Sine.Out",
-        onUpdate: (tw) => {
-          const r = tw.getValue();
-          const a = 1 - r / (S * 0.4);
-          drawRing(r, Math.max(0, a));
-        },
-        onComplete: () => ring.destroy(),
-      });
-
+      const size = Math.round(Math.min(this.W, this.H) * 0.11);
       const label = this.add.text(cx, cy, text, {
         fontFamily: "Courier New, monospace",
         fontSize: size + "px",
         fontStyle: "bold",
-        color: colorCss,
-        stroke: "#000",
-        strokeThickness: 9,
+        color: "#ffdf3c",
+        stroke: "#802000",
+        strokeThickness: 8,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(1700).setAlpha(0);
 
       this.tweens.add({
         targets: label,
         alpha: { from: 0, to: 1 },
-        scale: { from: 0.5, to: 1.2 },
+        scale: { from: 0.6, to: 1.15 },
         y: cy - 20,
         ease: "Back.Out",
-        duration: 260,
+        duration: 220,
       });
       this.tweens.add({
         targets: label,
         alpha: 0,
-        scale: 1.0,
-        y: cy - 80,
-        delay: 1000,
-        duration: 700,
+        scale: 0.95,
+        y: cy - 60,
+        delay: 900,
+        duration: 600,
         ease: "Sine.In",
         onComplete: () => label.destroy(),
       });
@@ -2021,52 +1248,6 @@
     // ---------------------------------------------------------------
     // Milestone flash at floors 100 / 250 / 500 / 1000
     // ---------------------------------------------------------------
-    triggerLevelUp(level) {
-      this.audio.milestone();
-      const idx = LEVELS.indexOf(level);
-      const cx = this.W / 2;
-      const cy = this.H * 0.38;
-      const size = Math.round(Math.min(this.W, this.H) * 0.065);
-      const nameSize = Math.round(Math.min(this.W, this.H) * 0.10);
-
-      const line1 = this.add.text(cx, cy - nameSize * 0.6, `LEVEL ${idx + 1}`, {
-        fontFamily: "Courier New, monospace",
-        fontSize: size + "px", fontStyle: "bold",
-        color: "#ffdf3c", stroke: "#000", strokeThickness: 6,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1750).setAlpha(0);
-
-      const line2 = this.add.text(cx, cy + nameSize * 0.15, level.name, {
-        fontFamily: "Courier New, monospace",
-        fontSize: nameSize + "px", fontStyle: "bold",
-        color: "#ffffff", stroke: "#000", strokeThickness: 7,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1750).setAlpha(0);
-
-      this.tweens.add({
-        targets: [line1, line2], alpha: 1, scale: { from: 0.5, to: 1.1 },
-        duration: 280, ease: "Back.Out",
-      });
-      this.tweens.add({
-        targets: [line1, line2], alpha: 0, scale: 1.25, y: "-=40",
-        delay: 1500, duration: 700, ease: "Sine.In",
-        onComplete: () => { line1.destroy(); line2.destroy(); },
-      });
-
-      // Screen-tint flash using the incoming theme's accent color.
-      const nextTheme = THEMES[level.themeKey];
-      const flash = this.add.graphics().setScrollFactor(0).setDepth(1600);
-      flash.fillStyle(nextTheme.accent, 0.35);
-      flash.fillRect(0, 0, this.W, this.H);
-      this.tweens.add({
-        targets: flash, alpha: 0, duration: 550, ease: "Sine.Out",
-        onComplete: () => flash.destroy(),
-      });
-
-      // Ratchet scroll speed to the new level baseline so pressure rises.
-      if (this.scrollActive && this.scrollSpeed < level.scrollSpeed) {
-        this.scrollSpeed = level.scrollSpeed;
-      }
-    }
-
     triggerMilestone(n) {
       this.audio.milestone();
       const msg = n >= 1000 ? `FLOOR ${n}!\nLEGEND.`
@@ -2122,22 +1303,20 @@
       // Trigger auto-scroll once the player first reaches the start floor.
       if (!this.scrollActive && p.highestFloor >= CFG.SCROLL_START_FLOOR) {
         this.scrollActive = true;
-        this.scrollSpeed = Math.max(CFG.SCROLL_INITIAL_SPEED, levelFor(p.highestFloor).scrollSpeed);
+        this.scrollSpeed = CFG.SCROLL_INITIAL_SPEED;
         this.scrollStartedAt = this.time.now;
         this.nextSpeedupAt  = this.time.now + CFG.SCROLL_INCREMENT_MS;
         this.triggerHurryUp(false);
       }
 
       if (this.scrollActive) {
-        // Scheduled speed-ups (still +20 every 30s for in-level pressure).
+        // Scheduled speed-ups
         if (this.time.now >= this.nextSpeedupAt) {
           this.scrollSpeed += CFG.SCROLL_INCREMENT;
           this.nextSpeedupAt = this.time.now + CFG.SCROLL_INCREMENT_MS;
           this.triggerHurryUp(true);
         }
-        // Keep up with the level baseline, but never slow down.
-        const baseline = levelFor(p.highestFloor).scrollSpeed;
-        if (this.scrollSpeed < baseline) this.scrollSpeed = baseline;
+        // Camera Y decreases over time (climbs into negative = up).
         this.cameraY -= this.scrollSpeed * dt;
       }
 
@@ -2164,190 +1343,86 @@
       if (this.hud) this.hud.container.destroy();
       const c = this.add.container(0, 0).setScrollFactor(0).setDepth(1100);
 
-      const S = Math.min(this.W, this.H);
-      const pad = Math.round(S * 0.025);
-      const small = Math.max(13, Math.round(S * 0.030));
-      const big   = Math.max(20, Math.round(S * 0.050));
+      const pad = 14;
+      const small = Math.max(14, Math.round(Math.min(this.W, this.H) * 0.032));
+      const big   = Math.max(18, Math.round(Math.min(this.W, this.H) * 0.045));
 
-      // ---- Floor counter (top-left) ----
-      const floorPlate = this.add.graphics();
-      c.add(floorPlate);
-      const floorTxt = this.add.text(pad + 6, pad, "FLOOR 0", {
+      const floorTxt = this.add.text(pad, pad, "FLOOR 0", {
         fontFamily: "Courier New, monospace",
         fontSize: big + "px", fontStyle: "bold",
-        color: "#9cd9ff", stroke: "#00182e", strokeThickness: 4,
+        color: "#9cd9ff", stroke: "#000", strokeThickness: 4,
       });
       c.add(floorTxt);
 
-      // ---- Score ticker (top-center) ----
-      const scorePlate = this.add.graphics();
-      c.add(scorePlate);
       const scoreTxt = this.add.text(this.W / 2, pad, "0", {
         fontFamily: "Courier New, monospace",
-        fontSize: Math.round(big * 1.1) + "px", fontStyle: "bold",
-        color: "#ffffff", stroke: "#000", strokeThickness: 5,
+        fontSize: big + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 4,
       }).setOrigin(0.5, 0);
       c.add(scoreTxt);
 
-      // ---- Best score (top-right, with crown glyph) ----
-      const bestTxt = this.add.text(this.W - pad, pad + 2, "\u2654 BEST " + this.best.score, {
+      const bestTxt = this.add.text(this.W - pad, pad, "BEST " + this.best.score, {
         fontFamily: "Courier New, monospace",
-        fontSize: small + "px", fontStyle: "bold",
+        fontSize: small + "px",
         color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
       }).setOrigin(1, 0);
       c.add(bestTxt);
 
-      // ---- Combo meter (vertical, left edge) ----
-      const meterBG    = this.add.graphics();
-      const meterFill  = this.add.graphics();
-      const meterGlow  = this.add.graphics();
-      c.add(meterBG); c.add(meterFill); c.add(meterGlow);
+      // Combo meter on the left side
+      const meterBG = this.add.graphics();
+      c.add(meterBG);
+      const meterFill = this.add.graphics();
+      c.add(meterFill);
 
-      // ---- Giant multiplier badge on the meter ----
-      const multTxt = this.add.text(pad + 26, this.H * 0.5, "", {
+      const comboTxt = this.add.text(pad + 9, this.H * 0.5, "", {
         fontFamily: "Courier New, monospace",
-        fontSize: Math.round(S * 0.085) + "px",
-        fontStyle: "bold",
-        color: "#ffdf3c", stroke: "#000", strokeThickness: 6,
-      }).setOrigin(0, 0.5);
-      c.add(multTxt);
-      multTxt.setVisible(false);
-
-      // Small "COMBO" label above the meter
-      const comboLabel = this.add.text(pad + 8, this.H * 0.22 - small * 1.1, "COMBO", {
-        fontFamily: "Courier New, monospace",
-        fontSize: Math.round(small * 0.85) + "px", fontStyle: "bold",
-        color: "#9cd9ff", stroke: "#000", strokeThickness: 3,
-      }).setOrigin(0.5, 1);
-      c.add(comboLabel);
-      comboLabel.setVisible(false);
+        fontSize: big + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 5,
+      }).setOrigin(0.5);
+      c.add(comboTxt);
 
       this.hud = {
         container: c,
-        floorPlate, floorTxt, scorePlate, scoreTxt, bestTxt,
-        meterBG, meterFill, meterGlow, multTxt, comboLabel,
-        pad, small, big, S,
-        // Tickers / pulse state
-        scoreShown: 0,
-        multPrev: 0,
-        meterPulse: 0,      // 0..1, decays, pulses on each qualifying jump
+        floorTxt, scoreTxt, bestTxt, comboTxt,
+        meterBG, meterFill,
+        pad, small, big,
       };
     }
 
-    // Drive a smoothly animated score so it ticks up instead of snapping.
     drawHUD() {
       if (!this.hud) return;
-      const h = this.hud;
       const p = this.player;
-
-      // Floor counter with small chevron
-      h.floorTxt.setText("\u25B2 FLOOR " + p.highestFloor);
-
-      // Plate behind floor text
-      const fb = h.floorTxt.getBounds();
-      h.floorPlate.clear();
-      h.floorPlate.fillStyle(0x000000, 0.38);
-      h.floorPlate.fillRoundedRect(fb.x - 8, fb.y - 3, fb.width + 16, fb.height + 6, 6);
-
-      // Score ticker: ease toward target each frame
-      const target = this.score;
-      if (h.scoreShown !== target) {
-        const diff = target - h.scoreShown;
-        const step = Math.max(1, Math.ceil(Math.abs(diff) * 0.18));
-        if (diff > 0) h.scoreShown = Math.min(target, h.scoreShown + step);
-        else          h.scoreShown = Math.max(target, h.scoreShown - step);
-      }
-      h.scoreTxt.setText(String(h.scoreShown));
-
-      // Score plate
-      const sb = h.scoreTxt.getBounds();
-      h.scorePlate.clear();
-      h.scorePlate.fillStyle(0x000000, 0.42);
-      h.scorePlate.fillRoundedRect(sb.x - 10, sb.y - 3, sb.width + 20, sb.height + 6, 8);
-      // Flash border when behind target
-      if (h.scoreShown < target) {
-        h.scorePlate.lineStyle(2, 0xffdf3c, 0.8);
-        h.scorePlate.strokeRoundedRect(sb.x - 10, sb.y - 3, sb.width + 20, sb.height + 6, 8);
-      }
-
-      // Best score with crown + subtle glow when nearing a beat
-      const bestVal = Math.max(this.best.score, h.scoreShown);
-      h.bestTxt.setText("\u2654 BEST " + bestVal);
+      this.hud.floorTxt.setText("FLOOR " + p.highestFloor);
+      this.hud.scoreTxt.setText(String(this.score));
+      this.hud.bestTxt.setText("BEST " + Math.max(this.best.score, this.score));
 
       // Combo meter
-      h.meterBG.clear();
-      h.meterFill.clear();
-      h.meterGlow.clear();
+      const mbg = this.hud.meterBG;
+      const mf  = this.hud.meterFill;
+      mbg.clear(); mf.clear();
 
-      const mx = h.pad;
-      const myTop = this.H * 0.22;
-      const mw = 16;
-      const mh = this.H * 0.56;
+      const mx = this.hud.pad;
+      const myTop = this.H * 0.25;
+      const mw = 10;
+      const mh = this.H * 0.50;
 
-      // Track (outer shadow + inner dark)
-      h.meterBG.fillStyle(0x000000, 0.55);
-      h.meterBG.fillRoundedRect(mx - 3, myTop - 3, mw + 6, mh + 6, 4);
-      h.meterBG.fillStyle(0x0a1428, 1);
-      h.meterBG.fillRoundedRect(mx, myTop, mw, mh, 3);
-      // Top tick marks to hint "drain"
-      h.meterBG.fillStyle(0x1e2e48, 1);
-      for (let t = 0.25; t < 1; t += 0.25) {
-        h.meterBG.fillRect(mx + 2, myTop + mh * t, mw - 4, 1);
-      }
+      // Track
+      mbg.fillStyle(0x000000, 0.5);
+      mbg.fillRect(mx - 2, myTop - 2, mw + 4, mh + 4);
+      mbg.fillStyle(0x1a3a66, 1);
+      mbg.fillRect(mx, myTop, mw, mh);
 
-      const active = this.combo.count > 0 && this.combo.timer > 0;
-      if (active) {
+      if (this.combo.count > 0 && this.combo.timer > 0) {
         const frac = Phaser.Math.Clamp(this.combo.timer / (CFG.COMBO_TIMEOUT_MS / 1000), 0, 1);
         const fillH = mh * frac;
-        const y0 = myTop + (mh - fillH);
-        // Gradient fill from top (hot) to bottom (base) in chunky bands.
-        const baseColor = tierColorFor(this.combo.count);
-        const hotColor  = lerpColor(baseColor, 0xffffff, 0.35);
-        const steps = 8;
-        for (let i = 0; i < steps; i++) {
-          const t = i / (steps - 1);
-          const c = lerpColor(hotColor, baseColor, t);
-          const segH = fillH / steps + 1;
-          h.meterFill.fillStyle(c, 1);
-          h.meterFill.fillRect(mx, y0 + segH * i, mw, segH);
-        }
-        // Animated shine ribbon
-        const shineY = y0 + (this.time.now * 0.12 % fillH);
-        h.meterFill.fillStyle(0xffffff, 0.35);
-        h.meterFill.fillRect(mx, shineY, mw, 2);
-
-        // Outer glow, pulses on qualifying jumps
-        const glowA = 0.35 + 0.35 * h.meterPulse + 0.10 * Math.abs(Math.sin(this.time.now / 120));
-        h.meterGlow.lineStyle(4, baseColor, Math.min(0.9, glowA));
-        h.meterGlow.strokeRoundedRect(mx - 2, y0 - 2, mw + 4, fillH + 4, 4);
-
-        // Multiplier badge
-        const mult = this.combo.count;
-        h.multTxt.setVisible(true);
-        h.multTxt.setText("x" + mult);
-        h.multTxt.setColor(tierColorCssFor(mult));
-        // Bouncy increment pop
-        if (mult !== h.multPrev) {
-          h.multPrev = mult;
-          this.tweens.add({
-            targets: h.multTxt,
-            scale: { from: 1.6, to: 1 },
-            duration: 260, ease: "Back.Out",
-          });
-        }
-        h.comboLabel.setVisible(true);
+        const color = frac > 0.5 ? 0xffdf3c : (frac > 0.2 ? 0xff8a2a : 0xff3030);
+        mf.fillStyle(color, 1);
+        mf.fillRect(mx, myTop + (mh - fillH), mw, fillH);
+        this.hud.comboTxt.setText("x" + this.combo.count);
+        this.hud.comboTxt.setVisible(true);
       } else {
-        h.multTxt.setVisible(false);
-        h.comboLabel.setVisible(false);
-        h.multPrev = 0;
+        this.hud.comboTxt.setVisible(false);
       }
-
-      // Decay meter pulse
-      if (h.meterPulse > 0) h.meterPulse = Math.max(0, h.meterPulse - 0.04);
-    }
-
-    pulseCombo() {
-      if (this.hud) this.hud.meterPulse = 1;
     }
 
     // ---------------------------------------------------------------
@@ -2531,177 +1606,23 @@
       y += btnH + gap;
       addBtn(y, "SHARE",   0x444b66, 0xffdf3c, () => this.shareScore());
 
-      // Character button - opens the select screen from game-over.
-      y += btnH + gap;
-      addBtn(y, "CHARACTER", 0x1a1a24, 0xffdf3c, () => this.openCharacterSelect());
-
-      // Tilt-invert toggle on mobile only (doesn't show up for desktops).
-      if (this.tilt && this.tilt.enabled) {
-        y += btnH + gap * 0.6;
-        const tiltLabel = "FLIP TILT: " + (this.tilt.invert ? "ON" : "OFF");
-        addBtn(y, tiltLabel, 0x223344, 0x9cd9ff, () => {
-          this.tilt.invert = !this.tilt.invert;
-          lsSet(LS_KEYS.tiltInvert, this.tilt.invert ? "1" : "0");
-          this.showGameOverScreen();
-        });
-      }
-
       this.input.keyboard.once("keydown-SPACE", () => this.gameOver && this.restartRun());
       this.input.keyboard.once("keydown-ENTER", () => this.gameOver && this.restartRun());
 
       this.gameOverOverlay = g;
     }
 
-    openCharacterSelect() {
-      if (this.characterSelectOverlay) {
-        this.characterSelectOverlay.destroy();
-        this.characterSelectOverlay = null;
-        return;
-      }
-      const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2200);
-
-      const bg = this.add.graphics();
-      bg.fillStyle(0x000000, 0.82);
-      bg.fillRect(0, 0, this.W, this.H);
-      g.add(bg);
-
-      const S = Math.min(this.W, this.H);
-      const titleSize = Math.round(S * 0.08);
-
-      const title = this.add.text(this.W / 2, S * 0.05, "CHOOSE YOUR CLIMBER", {
-        fontFamily: "Courier New, monospace",
-        fontSize: titleSize + "px", fontStyle: "bold",
-        color: "#ffdf3c", stroke: "#000", strokeThickness: 5,
-      }).setOrigin(0.5, 0);
-      g.add(title);
-
-      // 2 cols x 3 rows grid.
-      const cols = 2, rows = 3;
-      const gridTop = S * 0.05 + titleSize * 1.6;
-      const gridBottom = this.H - S * 0.12;
-      const gridW = Math.min(this.W - S * 0.1, S * 1.1);
-      const cellW = gridW / cols;
-      const cellH = (gridBottom - gridTop) / rows;
-      const gridX = (this.W - gridW) / 2;
-
-      const nameSize = Math.round(Math.min(cellH * 0.14, S * 0.03));
-      const scale = Math.min(cellW, cellH) / 60;
-
-      const close = () => {
-        g.destroy();
-        if (this.characterSelectOverlay === g) this.characterSelectOverlay = null;
-      };
-
-      CHARACTERS.forEach((c, i) => {
-        const col = i % cols, row = Math.floor(i / cols);
-        const cx = gridX + cellW * col + cellW / 2;
-        const cy = gridTop + cellH * row + cellH / 2;
-
-        const selected = c.id === this.characterId;
-        const cellBG = this.add.graphics();
-        cellBG.fillStyle(selected ? 0x223b66 : 0x12182a, 0.92);
-        cellBG.fillRoundedRect(cx - cellW * 0.45, cy - cellH * 0.45, cellW * 0.90, cellH * 0.90, 10);
-        cellBG.lineStyle(selected ? 3 : 2, selected ? 0xffdf3c : 0x9cd9ff, 1);
-        cellBG.strokeRoundedRect(cx - cellW * 0.45, cy - cellH * 0.45, cellW * 0.90, cellH * 0.90, 10);
-        g.add(cellBG);
-
-        // Character preview (uses the same drawers as in-game rendering)
-        const preview = this.drawCharacterPreview(c.id, cx, cy - nameSize * 1.2, scale);
-        g.add(preview);
-
-        const lbl = this.add.text(cx, cy + cellH * 0.30, c.name, {
-          fontFamily: "Courier New, monospace",
-          fontSize: nameSize + "px", fontStyle: "bold",
-          color: selected ? "#ffdf3c" : "#ffffff",
-          stroke: "#000", strokeThickness: 3,
-          align: "center",
-        }).setOrigin(0.5);
-        g.add(lbl);
-
-        const hit = this.add.zone(cx, cy, cellW * 0.90, cellH * 0.90)
-          .setOrigin(0.5).setInteractive({ useHandCursor: true });
-        g.add(hit);
-        hit.on("pointerdown", () => {
-          this.characterId = c.id;
-          try { localStorage.setItem(LS_KEYS.character, c.id); } catch (_) {}
-          this.characterDrawer = this[c.drawFn];
-          close();
-          // Redraw game-over overlay if it was underneath (reflect new sprite
-          // next run) - currently no live preview on that screen, so just
-          // leave it. Player sprite will update on next draw tick.
-        });
-      });
-
-      // Close button
-      const closeBtnY = this.H - S * 0.07;
-      const closeBG = this.add.graphics();
-      closeBG.fillStyle(0x444b66, 1);
-      closeBG.fillRoundedRect(this.W / 2 - S * 0.15, closeBtnY - S * 0.035, S * 0.30, S * 0.07, 8);
-      closeBG.lineStyle(2, 0x9cd9ff, 1);
-      closeBG.strokeRoundedRect(this.W / 2 - S * 0.15, closeBtnY - S * 0.035, S * 0.30, S * 0.07, 8);
-      g.add(closeBG);
-      const closeLabel = this.add.text(this.W / 2, closeBtnY, "CLOSE", {
-        fontFamily: "Courier New, monospace",
-        fontSize: Math.round(S * 0.03) + "px", fontStyle: "bold",
-        color: "#fff",
-      }).setOrigin(0.5);
-      g.add(closeLabel);
-      const closeHit = this.add.zone(this.W / 2, closeBtnY, S * 0.30, S * 0.07)
-        .setOrigin(0.5).setInteractive({ useHandCursor: true });
-      g.add(closeHit);
-      closeHit.on("pointerdown", close);
-
-      this.characterSelectOverlay = g;
-    }
-
-    drawCharacterPreview(id, x, y, scale) {
-      const entry = CHARACTERS.find(c => c.id === id) || CHARACTERS[0];
-      const fn = this[entry.drawFn] || this.drawCharClimber;
-      const g = this.add.graphics();
-      g.clear();
-      fn.call(this, g, {
-        w: CFG.CHAR_W, h: CFG.CHAR_H, lean: 0, airborne: false,
-        speedFrac: 0, runPhase: 0, now: this.time.now, facing: 1,
-      });
-      g.x = x; g.y = y;
-      g.scaleX = g.scaleY = scale;
-      return g;
-    }
-
     restartRun() {
-      if (this._restarting) return;    // guard against double-taps
-      this._restarting = true;
-
-      // Kill every tween belonging to overlay children BEFORE destroy so they
-      // don't fire callbacks on already-destroyed objects.
-      this.tweens.killAll();
-
-      // Clear any pending timers queued from FX (HURRY UP cleanup etc).
-      if (this.time && this.time.removeAllEvents) this.time.removeAllEvents();
-
-      if (this.gameOverOverlay)       { this.gameOverOverlay.destroy();       this.gameOverOverlay = null; }
-      if (this.characterSelectOverlay){ this.characterSelectOverlay.destroy(); this.characterSelectOverlay = null; }
-      if (this._hurryLabel)           { this._hurryLabel.destroy();           this._hurryLabel = null; }
-      if (this._edgeFlash)            { this._edgeFlash.destroy();            this._edgeFlash = null; }
-      if (this._shareToast)           { this._shareToast.destroy();           this._shareToast = null; }
-
+      // Tear down all transient graphics that belong to the previous run.
+      if (this.gameOverOverlay) { this.gameOverOverlay.destroy(); this.gameOverOverlay = null; }
+      if (this._hurryLabel)     { this._hurryLabel.destroy();     this._hurryLabel = null; }
+      if (this._edgeFlash)      { this._edgeFlash.destroy();      this._edgeFlash = null; }
       this.floorsGfx.clear();
       this.playerGfx.clear();
       this.wallsGfx.clear();
       this.particlesGfx.clear();
       this.ghostGfx.clear();
-
-      // Release any held touch buttons from the previous run.
-      this.touchLeft = this.touchRight = false;
-      this.jumpBufferUntil = 0;
-
-      // Ensure the tilt DOM button isn't covering anything after restart.
-      if (this.tiltBtn && this.tilt && this.tilt.enabled) {
-        this.tiltBtn.style.display = "none";
-      }
-
       this.resetRun();
-      this._restarting = false;
     }
 
     // ---------------------------------------------------------------
@@ -2770,274 +1691,7 @@
       g.fillRect(this.W - CFG.WALL_THICKNESS / 2, top, 1, h);
     }
 
-    // ---------------------------------------------------------------
-    // Title screen
-    // ---------------------------------------------------------------
-    showTitleScreen() {
-      if (this.titleOverlay) this.titleOverlay.destroy();
-      // Hide HUD + any reward popups etc. while the title is up.
-      if (this.hud) this.hud.container.setVisible(false);
-
-      const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2400);
-
-      const dim = this.add.graphics();
-      dim.fillStyle(0x000000, 0.40);
-      dim.fillRect(0, 0, this.W, this.H);
-      g.add(dim);
-
-      const cx = this.W / 2;
-      const S = Math.min(this.W, this.H);
-      const titleSize = Math.round(S * 0.17);
-      const subSize   = Math.round(S * 0.045);
-      const hintSize  = Math.round(S * 0.032);
-
-      // Big logo shadow
-      const logoShadow = this.add.text(cx + 4, S * 0.20 + 4, "FROSTSPIRE", {
-        fontFamily: "Courier New, monospace",
-        fontSize: titleSize + "px", fontStyle: "bold",
-        color: "#000000",
-      }).setOrigin(0.5);
-      logoShadow.setAlpha(0.7);
-      g.add(logoShadow);
-
-      const logo = this.add.text(cx, S * 0.20, "FROSTSPIRE", {
-        fontFamily: "Courier New, monospace",
-        fontSize: titleSize + "px", fontStyle: "bold",
-        color: "#9cd9ff", stroke: "#0b2848", strokeThickness: 8,
-      }).setOrigin(0.5);
-      g.add(logo);
-
-      const sub = this.add.text(cx, S * 0.20 + titleSize * 0.65, "A VERTICAL CLIMB", {
-        fontFamily: "Courier New, monospace",
-        fontSize: Math.round(subSize * 0.75) + "px", fontStyle: "bold",
-        color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
-        letterSpacing: 4,
-      }).setOrigin(0.5);
-      g.add(sub);
-
-      // Character preview in the middle of the screen
-      const previewY = this.H * 0.52;
-      const preview = this.drawCharacterPreview(this.characterId || "climber",
-        cx, previewY, Math.min(this.W, this.H) * 0.07);
-      g.add(preview);
-      this._titlePreview = preview;
-      this._titlePreviewId = this.characterId || "climber";
-
-      // Tap to start, with gentle pulsing
-      const tap = this.add.text(cx, this.H - S * 0.22, "TAP TO CLIMB", {
-        fontFamily: "Courier New, monospace",
-        fontSize: subSize + "px", fontStyle: "bold",
-        color: "#ffffff", stroke: "#000", strokeThickness: 5,
-      }).setOrigin(0.5);
-      g.add(tap);
-      this._titleTapLabel = tap;
-
-      // Small buttons: CHARACTER, MUTE
-      const btnSize = Math.round(S * 0.035);
-      const makeMiniBtn = (yy, label, onPress) => {
-        const w = S * 0.30, h = btnSize * 2;
-        const bg = this.add.graphics();
-        bg.fillStyle(0x1a2540, 0.9);
-        bg.fillRoundedRect(cx - w / 2, yy - h / 2, w, h, 8);
-        bg.lineStyle(2, 0x9cd9ff, 1);
-        bg.strokeRoundedRect(cx - w / 2, yy - h / 2, w, h, 8);
-        g.add(bg);
-        const lbl = this.add.text(cx, yy, label, {
-          fontFamily: "Courier New, monospace",
-          fontSize: btnSize + "px", fontStyle: "bold",
-          color: "#fff",
-        }).setOrigin(0.5);
-        g.add(lbl);
-        const hit = this.add.zone(cx, yy, w, h).setOrigin(0.5)
-          .setInteractive({ useHandCursor: true });
-        g.add(hit);
-        hit.on("pointerdown", (_p, _x, _y, ev) => {
-          ev.stopPropagation && ev.stopPropagation();
-          onPress();
-        });
-      };
-      makeMiniBtn(this.H - S * 0.12, "CHARACTER", () => this.openCharacterSelect());
-
-      // Hints below
-      const hint = this.add.text(cx, this.H - S * 0.06,
-        "DESKTOP: \u2190 \u2192 / A D  +  SPACE     MOBILE: TILT  +  TAP", {
-        fontFamily: "Courier New, monospace",
-        fontSize: hintSize + "px",
-        color: "#9cd9ff", stroke: "#000", strokeThickness: 3,
-        align: "center",
-      }).setOrigin(0.5);
-      g.add(hint);
-
-      // Tap anywhere in the backdrop starts the game. We guard against
-      // taps landing on the buttons via a zone that sits BEHIND the
-      // foreground buttons (lower depth inside the container).
-      const backdropHit = this.add.zone(0, 0, this.W, this.H)
-        .setOrigin(0, 0).setInteractive();
-      g.addAt(backdropHit, 1);     // just above dim so FG clickables win
-      backdropHit.on("pointerdown", () => this.startFromTitle());
-
-      // Keyboard: any key begins
-      this._titleKeyHandler = () => this.startFromTitle();
-      this.input.keyboard.once("keydown-SPACE", this._titleKeyHandler);
-      this.input.keyboard.once("keydown-ENTER", this._titleKeyHandler);
-      this.input.keyboard.once("keydown-UP",    this._titleKeyHandler);
-
-      // Pulsing tap label tween (stored so we can kill it)
-      this._titleTween = this.tweens.add({
-        targets: tap, alpha: { from: 1, to: 0.35 },
-        duration: 600, yoyo: true, repeat: -1, ease: "Sine.InOut",
-      });
-
-      this.titleOverlay = g;
-    }
-
-    animateTitleScreen() {
-      // Refresh character preview if selection changed via overlay.
-      if (this._titlePreviewId !== (this.characterId || "climber")) {
-        if (this._titlePreview) { this._titlePreview.destroy(); this._titlePreview = null; }
-        const cx = this.W / 2;
-        const previewY = this.H * 0.52;
-        const preview = this.drawCharacterPreview(this.characterId || "climber",
-          cx, previewY, Math.min(this.W, this.H) * 0.07);
-        if (this.titleOverlay) this.titleOverlay.add(preview);
-        this._titlePreview = preview;
-        this._titlePreviewId = this.characterId || "climber";
-      }
-    }
-
-    startFromTitle() {
-      if (this.state !== "title") return;
-      if (this._titleTween) { this._titleTween.stop(); this._titleTween = null; }
-      if (this.titleOverlay) { this.titleOverlay.destroy(); this.titleOverlay = null; }
-      this._titlePreview = null;
-      this.state = "playing";
-      // Fresh run (clears any state from the pre-title resetRun())
-      this.restartRun();
-      this.state = "playing";
-      this.runStartTime = this.time.now;
-      this.hintUntil = this.time.now + 5500;
-      if (this.hud) this.hud.container.setVisible(true);
-    }
-
-    // ---------------------------------------------------------------
-    // Pause menu
-    // ---------------------------------------------------------------
-    togglePause() {
-      if (this.state === "playing") this.showPauseMenu();
-      else if (this.state === "paused") this.hidePauseMenu();
-    }
-    showPauseMenu() {
-      this.state = "paused";
-      if (this.pauseOverlay) this.pauseOverlay.destroy();
-      const g = this.add.container(0, 0).setScrollFactor(0).setDepth(2300);
-      const bg = this.add.graphics();
-      bg.fillStyle(0x000000, 0.70);
-      bg.fillRect(0, 0, this.W, this.H);
-      g.add(bg);
-
-      const cx = this.W / 2;
-      const S = Math.min(this.W, this.H);
-      const titleSize = Math.round(S * 0.10);
-      const btnLbl = Math.round(S * 0.035);
-      const btnH = Math.round(S * 0.07);
-      const btnW = Math.min(this.W * 0.65, S * 0.55);
-      const gap = Math.round(S * 0.022);
-      let y = this.H / 2 - (titleSize * 1.2 + (btnH + gap) * 4) / 2;
-
-      const title = this.add.text(cx, y, "PAUSED", {
-        fontFamily: "Courier New, monospace",
-        fontSize: titleSize + "px", fontStyle: "bold",
-        color: "#9cd9ff", stroke: "#000", strokeThickness: 6,
-      }).setOrigin(0.5, 0);
-      g.add(title);
-      y += titleSize * 1.2 + gap;
-
-      const makeBtn = (label, onPress, fill, stroke) => {
-        const gb = this.add.graphics();
-        gb.fillStyle(fill, 1);
-        gb.fillRoundedRect(cx - btnW / 2, y, btnW, btnH, 10);
-        gb.lineStyle(2, stroke, 1);
-        gb.strokeRoundedRect(cx - btnW / 2, y, btnW, btnH, 10);
-        g.add(gb);
-        const lbl = this.add.text(cx, y + btnH / 2, label, {
-          fontFamily: "Courier New, monospace",
-          fontSize: btnLbl + "px", fontStyle: "bold",
-          color: "#fff",
-        }).setOrigin(0.5);
-        g.add(lbl);
-        const hit = this.add.zone(cx, y + btnH / 2, btnW, btnH).setOrigin(0.5)
-          .setInteractive({ useHandCursor: true });
-        g.add(hit);
-        hit.on("pointerdown", onPress);
-        y += btnH + gap;
-      };
-
-      makeBtn("RESUME",    () => this.hidePauseMenu(),                  0x2e84d6, 0x9cd9ff);
-      makeBtn("CHARACTER", () => this.openCharacterSelect(),            0x1a1a24, 0xffdf3c);
-      makeBtn(this.audio.muted ? "UNMUTE" : "MUTE",
-        () => { this.audio.toggleMute(); this.showPauseMenu(); },       0x223344, 0x9cd9ff);
-      makeBtn("RESTART",   () => { this.hidePauseMenu(); this.restartRun(); }, 0x664434, 0xffdf3c);
-      makeBtn("HOME",      () => { this.hidePauseMenu(true); this.state = "title"; this.showTitleScreen(); }, 0x444b66, 0xff9a9a);
-
-      this.pauseOverlay = g;
-    }
-    hidePauseMenu(keepState) {
-      if (this.pauseOverlay) { this.pauseOverlay.destroy(); this.pauseOverlay = null; }
-      if (!keepState) this.state = "playing";
-    }
-
-    // ---------------------------------------------------------------
-    // First-run hint
-    // ---------------------------------------------------------------
-    updateHint() {
-      const now = this.time.now;
-      if (now > this.hintUntil) {
-        if (this.hintLabel) { this.hintLabel.destroy(); this.hintLabel = null; }
-        return;
-      }
-      if (!this.hintLabel) {
-        const S = Math.min(this.W, this.H);
-        const text = "RUN FAST TO JUMP HIGHER.   HIT WALLS + REVERSE TO BOUNCE.";
-        this.hintLabel = this.add.text(this.W / 2, this.H - S * 0.05, text, {
-          fontFamily: "Courier New, monospace",
-          fontSize: Math.round(S * 0.026) + "px",
-          fontStyle: "bold",
-          color: "#9cd9ff", stroke: "#000", strokeThickness: 3,
-          align: "center",
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1200);
-      }
-      // Fade last 0.8s
-      const remaining = this.hintUntil - now;
-      if (remaining < 800) {
-        this.hintLabel.setAlpha(remaining / 800);
-      }
-    }
-
-    // ---------------------------------------------------------------
-    // Camera shake (called on high-impact landings)
-    // ---------------------------------------------------------------
-    shakeCamera(intensity, ms) {
-      this.cameras.main.shake(ms || 140, intensity || 0.004);
-    }
-
     update(_time, delta) {
-      // Title: animate backdrop only.
-      if (this.state === "title") {
-        this.drawBackground();
-        this.animateTitleScreen();
-        return;
-      }
-      // Paused: freeze world, keep overlay responsive.
-      if (this.state === "paused") {
-        this.drawBackground();
-        this.drawWalls();
-        this.drawFloors();
-        this.drawGhost();
-        this.drawParticles();
-        this.drawPlayer();
-        this.drawHUD();
-        return;
-      }
       if (this.gameOver) {
         this.drawWalls();
         this.drawFloors();
@@ -3059,7 +1713,6 @@
       this.drawPlayer();
       this.drawHurryUp();
       this.drawHUD();
-      this.updateHint();
       this.checkGameOver();
     }
   }
