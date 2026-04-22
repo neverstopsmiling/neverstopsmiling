@@ -30,10 +30,94 @@
       touch-action: none;
     }
     canvas { display: block; }
+
+    /* ----- Overlays (DOM for rock-solid mobile reliability) ----- */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 16px;
+      box-sizing: border-box;
+      background: rgba(5, 8, 15, 0.82);
+      z-index: 50;
+      gap: 12px;
+      text-align: center;
+    }
+    .overlay.on { display: flex; }
+    .overlay h1 {
+      margin: 0;
+      font: 700 clamp(28px, 9vmin, 72px)/1 "Courier New", monospace;
+      letter-spacing: 2px;
+    }
+    .overlay .stat-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font: 700 clamp(14px, 3.5vmin, 20px)/1.3 "Courier New", monospace;
+      color: #9cd9ff;
+    }
+    .overlay .stat-block .best {
+      color: #ffdf3c;
+      font-size: clamp(12px, 3vmin, 17px);
+    }
+    .overlay button {
+      width: min(80vw, 320px);
+      padding: 16px 18px;
+      border-radius: 14px;
+      border: 3px solid #9cd9ff;
+      background: #2e84d6;
+      color: #fff;
+      font: 700 clamp(15px, 4vmin, 22px)/1 "Courier New", monospace;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .overlay button:active { transform: translateY(2px); }
+    .overlay button.secondary { background: #444b66; border-color: #ffdf3c; }
+    .overlay button.tertiary  { background: #1a1a24; border-color: #ffdf3c; color: #ffdf3c; }
+
+    #hurry-up {
+      position: fixed;
+      top: 18%;
+      left: 50%;
+      transform: translateX(-50%);
+      font: 900 clamp(32px, 10vmin, 90px)/1 "Courier New", monospace;
+      color: #ff3a3a;
+      text-shadow: 0 0 8px #000, 0 0 16px #ff3a3a;
+      letter-spacing: 4px;
+      z-index: 40;
+      display: none;
+      animation: hurry-pulse 0.25s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    @keyframes hurry-pulse {
+      from { transform: translateX(-50%) scale(1);    opacity: 1;   }
+      to   { transform: translateX(-50%) scale(1.08); opacity: 0.6; }
+    }
   </style>
 </head>
 <body>
   <div id="game"></div>
+
+  <!-- Game Over overlay (DOM - clicks are 100% reliable on iOS) -->
+  <div id="gameover" class="overlay">
+    <h1 style="color:#ff5a5a;">GAME OVER</h1>
+    <div class="stat-block">
+      <div>FLOOR <span id="go-floor">0</span></div>
+      <div>SCORE <span id="go-score">0</span></div>
+      <div class="best">BEST FLOOR <span id="go-best-floor">0</span></div>
+      <div class="best">BEST SCORE <span id="go-best-score">0</span></div>
+    </div>
+    <button id="btn-restart">&#9654;  RESTART</button>
+  </div>
+
+  <div id="hurry-up">HURRY UP!</div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
   <script>
   "use strict";
@@ -151,8 +235,24 @@
 
       this.setupInput();
       this.resetRun();
+      this.bindDomUI();
 
       this.drawBackground();
+    }
+
+    // DOM overlays drive the Game Over screen. Click handlers call
+    // scene methods directly - no Phaser zones, no tap-through.
+    bindDomUI() {
+      this.dom = {
+        gameover:  document.getElementById("gameover"),
+        goFloor:   document.getElementById("go-floor"),
+        goScore:   document.getElementById("go-score"),
+        goBestF:   document.getElementById("go-best-floor"),
+        goBestS:   document.getElementById("go-best-score"),
+        btnRestart:document.getElementById("btn-restart"),
+        hurry:     document.getElementById("hurry-up"),
+      };
+      this.dom.btnRestart.addEventListener("click", () => this.restartRun());
     }
 
     onResize(sz) {
@@ -256,6 +356,24 @@
       // Camera
       this.cameras.main.setScroll(0, 0);
       this.cameraY = 0;
+
+      // Auto-scroll
+      this.scrollActive     = false;
+      this.scrollSpeed      = 0;
+      this.nextSpeedupAt    = 0;
+      this.hurryUntil       = 0;
+
+      // Run state
+      this.gameOver = false;
+      this.score = 0;
+      this.runStartTime = this.time ? this.time.now : 0;
+
+      if (this.dom) this.dom.gameover.classList.remove("on");
+    }
+
+    // Fresh run callable from button / keyboard restart
+    restartRun() {
+      this.resetRun();
     }
 
     // -----------------------------------------------------------
@@ -532,15 +650,70 @@
     }
 
     // -----------------------------------------------------------
-    // Camera - upward-only follow (auto-scroll lands in Phase 4)
+    // Camera - upward-only follow + auto-scroll escalation
     // -----------------------------------------------------------
-    updateCamera() {
+    updateCamera(dt) {
       const p = this.player;
+      // Follow upward
       const desired = p.y - this.H * 0.62;
       if (desired < this.cameraY) {
         this.cameraY = Phaser.Math.Linear(this.cameraY, desired, 0.18);
       }
+      // Auto-scroll arms at floor 5
+      if (!this.scrollActive && p.highestFloor >= CFG.SCROLL_START_FLOOR) {
+        this.scrollActive   = true;
+        this.scrollSpeed    = CFG.SCROLL_INITIAL_SPEED;
+        this.nextSpeedupAt  = this.time.now + CFG.SCROLL_INCREMENT_MS;
+        this.flashHurryUp();
+      }
+      if (this.scrollActive) {
+        if (this.time.now >= this.nextSpeedupAt) {
+          this.scrollSpeed += CFG.SCROLL_INCREMENT;
+          this.nextSpeedupAt = this.time.now + CFG.SCROLL_INCREMENT_MS;
+          this.flashHurryUp();
+        }
+        this.cameraY -= this.scrollSpeed * dt;
+      }
       this.cameras.main.setScroll(0, this.cameraY);
+    }
+
+    flashHurryUp() {
+      this.hurryUntil = this.time.now + 1400;
+      if (this.dom && this.dom.hurry) this.dom.hurry.style.display = "block";
+    }
+    tickHurryUp() {
+      if (!this.dom || !this.dom.hurry) return;
+      if (this.time.now > this.hurryUntil && this.dom.hurry.style.display === "block") {
+        this.dom.hurry.style.display = "none";
+      }
+    }
+
+    // -----------------------------------------------------------
+    // Game over
+    // -----------------------------------------------------------
+    checkGameOver() {
+      if (this.gameOver) return;
+      const p = this.player;
+      const viewBottom = this.cameraY + this.H;
+      if (p.y > viewBottom + 8) this.triggerGameOver();
+    }
+
+    triggerGameOver() {
+      this.gameOver = true;
+      // Persist floor best (score comes in Phase 5)
+      if (this.player.highestFloor > this.best.floor) {
+        this.best.floor = this.player.highestFloor;
+        lsSet(LS_KEYS.bestFloor, this.best.floor);
+      }
+      // Fill + show DOM overlay
+      if (this.dom) {
+        this.dom.goFloor.textContent  = this.player.highestFloor;
+        this.dom.goScore.textContent  = this.score;
+        this.dom.goBestF.textContent  = this.best.floor;
+        this.dom.goBestS.textContent  = this.best.score;
+        this.dom.gameover.classList.add("on");
+        this.dom.hurry.style.display = "none";
+      }
     }
 
     // -----------------------------------------------------------
@@ -597,12 +770,20 @@
 
     update(_t, delta) {
       const dt = Math.min(delta / 1000, 1 / 30);
+      if (this.gameOver) {
+        this.drawWalls();
+        this.drawFloors();
+        this.drawPlayer();
+        return;
+      }
       this.readInput();
       this.updatePhysics(dt);
-      this.updateCamera();
+      this.updateCamera(dt);
       this.drawWalls();
       this.drawFloors();
       this.drawPlayer();
+      this.tickHurryUp();
+      this.checkGameOver();
     }
   }
 
