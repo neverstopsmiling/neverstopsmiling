@@ -516,6 +516,14 @@
   class GameScene extends Phaser.Scene {
     constructor() { super("game"); }
 
+    // Preload guarantees textures are READY before create() runs.
+    // More reliable than addBase64() which is async and fails on iOS.
+    preload() {
+      this.load.image("bg-ice",    ASSETS.bgIce);
+      this.load.image("floor-ice", ASSETS.floorIce);
+      this.load.image("wall-ice",  ASSETS.wallIce);
+    }
+
     create() {
       this.W = this.scale.gameSize.width;
       this.H = this.scale.gameSize.height;
@@ -534,20 +542,8 @@
       // to handle thumb-over-thumb switching without starvation.
       this.input.addPointer(2);
 
-      // Load custom art textures from embedded base64.
-      this._artLoaded = false;
-      this._artPending = 3;
-      const onTex = () => {
-        this._artPending--;
-        if (this._artPending <= 0) {
-          this._artLoaded = true;
-          this._buildArtSprites();
-        }
-      };
-      this.textures.on("addtexture", onTex);
-      this.textures.addBase64("bg-ice",    ASSETS.bgIce);
-      this.textures.addBase64("floor-ice", ASSETS.floorIce);
-      this.textures.addBase64("wall-ice",  ASSETS.wallIce);
+      // Build art sprites (textures guaranteed loaded from preload)
+      this._buildArtSprites();
 
       // Render layers (depth-ordered)
       this.bgGfx        = this.add.graphics().setDepth(-10);
@@ -2128,74 +2124,74 @@
     }
 
     // -----------------------------------------------------------
-    // Custom art sprites (built once when textures finish loading)
+    // Custom art sprites (textures preloaded, built once in create)
     // -----------------------------------------------------------
     _buildArtSprites() {
-      // Background tileSprite - covers the whole screen, parallax scroll
-      this._bgSprite = this.add.tileSprite(
-        this.W / 2, this.H / 2, this.W, this.H, "bg-ice"
-      ).setOrigin(0.5).setScrollFactor(0).setDepth(-9);
+      // Background: TileSprite at origin(0,0), position(0,0), fills screen.
+      // setScrollFactor(0) locks it to the camera view.
+      // tilePositionY drives the parallax scroll.
+      this._bgSprite = this.add.tileSprite(0, 0, this.W, this.H, "bg-ice")
+        .setOrigin(0, 0).setScrollFactor(0).setDepth(-9);
 
-      // Wall tileSprites - left and right edges
-      this._wallL = this.add.tileSprite(
-        CFG.WALL_THICKNESS / 2, this.H / 2,
-        CFG.WALL_THICKNESS, this.H + 40, "wall-ice"
-      ).setOrigin(0.5).setScrollFactor(0).setDepth(-4);
-      this._wallR = this.add.tileSprite(
-        this.W - CFG.WALL_THICKNESS / 2, this.H / 2,
-        CFG.WALL_THICKNESS, this.H + 40, "wall-ice"
-      ).setOrigin(0.5).setScrollFactor(0).setDepth(-4);
+      // Walls: TileSprite strips on each edge. Origin(0,0) at exact pixel.
+      this._wallL = this.add.tileSprite(0, 0, CFG.WALL_THICKNESS, this.H, "wall-ice")
+        .setOrigin(0, 0).setScrollFactor(0).setDepth(-4);
+      this._wallR = this.add.tileSprite(this.W - CFG.WALL_THICKNESS, 0, CFG.WALL_THICKNESS, this.H, "wall-ice")
+        .setOrigin(0, 0).setScrollFactor(0).setDepth(-4);
 
-      // Floor sprite pool - reused each frame for visible floors
+      // Floor pool: Image objects (not TileSprite!) because the step art
+      // has unique crystal edges that shouldn't repeat. setDisplaySize()
+      // stretches the whole image to fit each floor's width.
       this._floorPool = [];
     }
 
     _updateArtSprites() {
-      if (!this._artLoaded) return;
-
-      // Background parallax - tilePositionY tracks camera at 30%
+      // Background parallax
       if (this._bgSprite) {
         this._bgSprite.tilePositionY = (this.cameraY || 0) * 0.3;
+        // Keep sized to current viewport (handles resize)
         this._bgSprite.setSize(this.W, this.H);
       }
 
-      // Walls - track camera scroll via tilePositionY
+      // Walls parallax
       if (this._wallL) {
         this._wallL.tilePositionY = (this.cameraY || 0) * 0.8;
-        this._wallL.setPosition(CFG.WALL_THICKNESS / 2, this.H / 2);
-        this._wallL.setSize(CFG.WALL_THICKNESS, this.H + 40);
+        this._wallL.setPosition(0, 0);
+        this._wallL.setSize(CFG.WALL_THICKNESS, this.H);
       }
       if (this._wallR) {
         this._wallR.tilePositionY = (this.cameraY || 0) * 0.8;
-        this._wallR.setPosition(this.W - CFG.WALL_THICKNESS / 2, this.H / 2);
-        this._wallR.setSize(CFG.WALL_THICKNESS, this.H + 40);
+        this._wallR.setPosition(this.W - CFG.WALL_THICKNESS, 0);
+        this._wallR.setSize(CFG.WALL_THICKNESS, this.H);
       }
 
-      // Floor sprites - assign pool members to visible floors
+      // Floor images — pool of Image objects matched to visible floors.
+      // The step image is 256x64. We scale each to (floorWidth x 48px)
+      // and position so the top ~20% (crystals) sits above the collision
+      // line and the bottom ~80% (icicles) hangs below.
       const pool = this._floorPool;
-      const viewTop = this.cameraY - 40;
-      const viewBot = this.cameraY + this.H + 40;
+      const viewTop = this.cameraY - 60;
+      const viewBot = this.cameraY + this.H + 60;
+      const VISUAL_H = 48;
 
-      // Hide all pooled sprites first
       for (let i = 0; i < pool.length; i++) pool[i].setVisible(false);
 
       let idx = 0;
       for (let i = 0; i < this.floors.length; i++) {
         const f = this.floors[i];
         if (f.y < viewTop || f.y > viewBot) continue;
-        // Only apply custom art for ice band (floors 0-99)
-        if (f.n >= 100) continue;
+        if (f.n >= 100) continue;  // ice art only for floors 0-99
 
-        // Get or create a pooled tileSprite
         if (idx >= pool.length) {
-          const ts = this.add.tileSprite(0, 0, 100, CFG.FLOOR_THICKNESS, "floor-ice")
-            .setOrigin(0, 0).setDepth(1);
-          pool.push(ts);
+          const img = this.add.image(0, 0, "floor-ice")
+            .setOrigin(0, 0.20)  // 20% from top = collision surface
+            .setDepth(1);
+          pool.push(img);
         }
-        const ts = pool[idx];
-        ts.setPosition(f.x, f.y);
-        ts.setSize(f.w, f.h);
-        ts.setVisible(true);
+        const img = pool[idx];
+        img.setPosition(f.x, f.y);
+        img.setDisplaySize(f.w, VISUAL_H);
+        img.setVisible(true);
         idx++;
       }
     }
