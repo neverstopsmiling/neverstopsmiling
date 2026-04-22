@@ -519,6 +519,12 @@
         flips:        lsGetInt(LS_KEYS.bestFlips, 0),
       };
 
+      // Unlock Phaser's pointer pool so two-thumb mobile play actually
+      // gets concurrent pointer events instead of queueing the second
+      // thumb behind the first. Default is 1 touch pointer; we need 3
+      // to handle thumb-over-thumb switching without starvation.
+      this.input.addPointer(2);
+
       // Render layers (depth-ordered)
       this.bgGfx        = this.add.graphics().setDepth(-10);
       this.wallsGfx     = this.add.graphics().setDepth(-5);
