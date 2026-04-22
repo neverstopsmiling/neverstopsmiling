@@ -95,6 +95,43 @@
       animation: hurry-pulse 0.25s ease-in-out infinite alternate;
       pointer-events: none;
     }
+
+    /* Tilt enable button (iOS 13+ permission gate). Small, top-center,
+       hidden the moment tilt is granted or once any orientation events
+       start flowing. Never overlaps gameplay at the bottom. */
+    #tilt-enable {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 14px;
+      background: rgba(20, 90, 180, 0.95);
+      color: #fff;
+      border: 2px solid #9cd9ff;
+      border-radius: 10px;
+      font: 700 11px/1 "Courier New", monospace;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      display: none;
+      z-index: 30;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    }
+
+    #share-toast {
+      position: fixed;
+      bottom: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 16px;
+      background: rgba(0, 0, 0, 0.85);
+      border: 2px solid #9cd9ff;
+      border-radius: 8px;
+      color: #fff;
+      font: 700 13px/1 "Courier New", monospace;
+      letter-spacing: 1px;
+      display: none;
+      z-index: 60;
+    }
     @keyframes hurry-pulse {
       from { transform: translateX(-50%) scale(1);    opacity: 1;   }
       to   { transform: translateX(-50%) scale(1.08); opacity: 0.6; }
@@ -114,9 +151,13 @@
       <div class="best">BEST SCORE <span id="go-best-score">0</span></div>
     </div>
     <button id="btn-restart">&#9654;  RESTART</button>
+    <button id="btn-share" class="secondary">SHARE SCORE</button>
+    <button id="btn-flip-tilt" class="tertiary" style="display:none;">FLIP TILT DIRECTION</button>
   </div>
 
   <div id="hurry-up">HURRY UP!</div>
+  <button id="tilt-enable" type="button">Enable Tilt Controls</button>
+  <div id="share-toast">COPIED!</div>
 
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
   <script>
@@ -352,8 +393,6 @@
       this.drawBackground();
     }
 
-    // DOM overlays drive the Game Over screen. Click handlers call
-    // scene methods directly - no Phaser zones, no tap-through.
     bindDomUI() {
       this.dom = {
         gameover:  document.getElementById("gameover"),
@@ -362,9 +401,19 @@
         goBestF:   document.getElementById("go-best-floor"),
         goBestS:   document.getElementById("go-best-score"),
         btnRestart:document.getElementById("btn-restart"),
+        btnShare:  document.getElementById("btn-share"),
+        btnFlipTilt: document.getElementById("btn-flip-tilt"),
         hurry:     document.getElementById("hurry-up"),
+        tiltBtn:   document.getElementById("tilt-enable"),
+        shareToast:document.getElementById("share-toast"),
       };
       this.dom.btnRestart.addEventListener("click", () => this.restartRun());
+      this.dom.btnShare.addEventListener("click", () => this.shareScore());
+      this.dom.btnFlipTilt.addEventListener("click", () => {
+        this.tilt.invert = !this.tilt.invert;
+        lsSet(LS_KEYS.tiltInvert, this.tilt.invert ? "1" : "0");
+        this.dom.btnFlipTilt.textContent = "FLIP TILT: " + (this.tilt.invert ? "ON" : "OFF");
+      });
     }
 
     onResize(sz) {
@@ -400,7 +449,7 @@
     }
 
     // -----------------------------------------------------------
-    // Input - keyboard for Phase 2. Tilt + touch land in Phase 8.
+    // Input - keyboard, device tilt, and touch fallback
     // -----------------------------------------------------------
     setupInput() {
       this.keys = this.input.keyboard.addKeys({
@@ -415,18 +464,102 @@
       this.input.keyboard.addCapture("LEFT,RIGHT,UP,DOWN,SPACE");
 
       this.axisX = 0;
-      this.jumpBufferUntil = 0;   // time.now deadline for buffered jump
-      this.lastGroundTime = 0;    // last ms the player was grounded
+      this.jumpBufferUntil = 0;
+      this.lastGroundTime = 0;
+
+      // Tilt state
+      this.tilt = {
+        enabled: false,
+        gamma: 0,
+        invert: lsGetInt(LS_KEYS.tiltInvert, 0) === 1,
+      };
+      // Touch state (fallback when no tilt)
+      this.touchLeft = false;
+      this.touchRight = false;
+
+      this._setupTilt();
+      this._setupTouch();
+    }
+
+    _setupTilt() {
+      const needsPermission =
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function";
+
+      const installHandler = () => {
+        if (this._tiltInstalled) return;
+        this._tiltInstalled = true;
+        window.addEventListener("deviceorientation", (ev) => {
+          if (ev.gamma == null) return;
+          this.tilt.enabled = true;
+          this.tilt.gamma = ev.gamma;
+          // First successful event auto-hides the prompt button.
+          if (this.dom && this.dom.tiltBtn) this.dom.tiltBtn.style.display = "none";
+        }, true);
+      };
+
+      if (needsPermission) {
+        // iOS 13+: need a user-gesture button. Show it on mobile only.
+        const btn = document.getElementById("tilt-enable");
+        if (btn) {
+          btn.style.display = "block";
+          btn.addEventListener("click", async () => {
+            try {
+              const res = await DeviceOrientationEvent.requestPermission();
+              if (res === "granted") { installHandler(); btn.style.display = "none"; }
+            } catch (_) {}
+          }, { once: true });
+        }
+      } else if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+        // Android + desktops with accelerometers can auto-install
+        installHandler();
+      }
+    }
+
+    _setupTouch() {
+      this.input.on("pointerdown", (pointer) => {
+        if (this.gameOver) return;
+        // Tap anywhere = jump (buffered)
+        this.jumpBufferUntil = this.time.now + CFG.JUMP_BUFFER_MS;
+        // And set touch-steer side
+        if (pointer.x < this.W / 2) this.touchLeft = true;
+        else this.touchRight = true;
+      });
+      this.input.on("pointermove", (pointer) => {
+        if (this.gameOver || !pointer.isDown) return;
+        if (pointer.x < this.W / 2) { this.touchLeft = true;  this.touchRight = false; }
+        else                        { this.touchRight = true; this.touchLeft = false;  }
+      });
+      this.input.on("pointerup", () => {
+        this.touchLeft = false;
+        this.touchRight = false;
+      });
     }
 
     readInput() {
       const k = this.keys;
       let ax = 0;
+
+      // Keyboard
       if (k.left.isDown  || k.a.isDown) ax -= 1;
       if (k.right.isDown || k.d.isDown) ax += 1;
+
+      // Tilt (only if no keyboard input)
+      if (ax === 0 && this.tilt.enabled) {
+        let g = this.tilt.gamma;
+        if (this.tilt.invert) g = -g;
+        // Simple dead zone + linear ramp out to +/- 25 degrees
+        if (Math.abs(g) > 3) ax = Phaser.Math.Clamp(g / 25, -1, 1);
+      }
+
+      // Touch fallback (only if no tilt is flowing)
+      if (ax === 0 && !this.tilt.enabled) {
+        if (this.touchLeft)  ax -= 1;
+        if (this.touchRight) ax += 1;
+      }
+
       this.axisX = ax;
 
-      // Any jump keydown refreshes the buffer.
       if (
         Phaser.Input.Keyboard.JustDown(k.up) ||
         Phaser.Input.Keyboard.JustDown(k.w)  ||
@@ -484,6 +617,13 @@
 
       // Milestones already fired this run
       this.milestonesFired = {};
+
+      // Ghost replay recorder + playback of best run
+      this.ghostRec = { samples: [], lastSampleAt: 0 };
+      const storedGhost = lsGetJSON(LS_KEYS.ghost, null);
+      this.ghostPlay = (storedGhost && Array.isArray(storedGhost.samples) && storedGhost.samples.length > 2)
+        ? { samples: storedGhost.samples, startTime: this.time ? this.time.now : 0, index: 0 }
+        : null;
 
       // Procedural floors
       this.floors = [];
@@ -1173,6 +1313,7 @@
         this.best.longestCombo = this.combo.longest;
         lsSet(LS_KEYS.longestCombo, this.best.longestCombo);
       }
+      this.maybeSaveGhost();
       if (this.dom) {
         this.dom.goFloor.textContent  = this.player.highestFloor;
         this.dom.goScore.textContent  = this.score;
@@ -1180,6 +1321,11 @@
         this.dom.goBestS.textContent  = this.best.score;
         this.dom.gameover.classList.add("on");
         this.dom.hurry.style.display = "none";
+        // Flip-tilt safety button only visible on mobile while tilt is active
+        if (this.tilt && this.tilt.enabled) {
+          this.dom.btnFlipTilt.style.display = "block";
+          this.dom.btnFlipTilt.textContent = "FLIP TILT: " + (this.tilt.invert ? "ON" : "OFF");
+        }
       }
     }
 
@@ -1274,6 +1420,91 @@
       }
     }
 
+    // -----------------------------------------------------------
+    // Ghost replay - record live positions, play back best run
+    // -----------------------------------------------------------
+    updateGhost() {
+      const now = this.time.now - this.runStartTime;
+      if (now - this.ghostRec.lastSampleAt >= CFG.GHOST_SAMPLE_MS) {
+        this.ghostRec.lastSampleAt = now;
+        const p = this.player;
+        this.ghostRec.samples.push([Math.round(now), Math.round(p.x), Math.round(p.y), p.facing]);
+      }
+    }
+
+    drawGhost() {
+      const g = this.ghostGfx;
+      g.clear();
+      if (!this.ghostPlay) return;
+      const s = this.ghostPlay.samples;
+      const elapsed = this.time.now - this.ghostPlay.startTime;
+      while (this.ghostPlay.index < s.length - 1 && s[this.ghostPlay.index + 1][0] <= elapsed) {
+        this.ghostPlay.index++;
+      }
+      const i = this.ghostPlay.index;
+      if (i >= s.length - 1) return;
+      const a = s[i], b = s[i + 1];
+      const span = Math.max(1, b[0] - a[0]);
+      const t = Phaser.Math.Clamp((elapsed - a[0]) / span, 0, 1);
+      const gx = a[1] + (b[1] - a[1]) * t;
+      const gy = a[2] + (b[2] - a[2]) * t;
+      if (gy < this.cameraY - 60 || gy > this.cameraY + this.H + 60) return;
+
+      // Low-opacity silhouette (not a full character render, so it
+      // never gets confused with the live player)
+      const w = CFG.CHAR_W, h = CFG.CHAR_H;
+      const bx = gx - w / 2, by = gy - h;
+      g.fillStyle(0xffffff, 0.30);
+      g.fillRect(bx, by + 4, w, h - 4);
+      g.fillStyle(0x9cd9ff, 0.30);
+      g.fillRect(bx, by + h * 0.30, w, h * 0.46);
+    }
+
+    maybeSaveGhost() {
+      const prev = lsGetJSON(LS_KEYS.ghost, null);
+      const prevScore = prev ? (prev.score || 0) : -1;
+      if (this.score > prevScore) {
+        lsSet(LS_KEYS.ghost, {
+          samples: this.ghostRec.samples.slice(0, 2000),
+          score: this.score,
+          floor: this.player.highestFloor,
+        });
+      }
+    }
+
+    // -----------------------------------------------------------
+    // Share
+    // -----------------------------------------------------------
+    shareScore() {
+      const text = `I reached floor ${this.player.highestFloor} with a ${this.combo.longest}-combo in Frostspire!`;
+      const toast = () => {
+        if (!this.dom || !this.dom.shareToast) return;
+        this.dom.shareToast.style.display = "block";
+        setTimeout(() => { this.dom.shareToast.style.display = "none"; }, 1500);
+      };
+      const fallback = () => {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          return true;
+        } catch (_) { return false; }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(toast, () => { if (fallback()) toast(); });
+      } else if (fallback()) {
+        toast();
+      }
+      if (navigator.share) {
+        try { navigator.share({ text, title: "Frostspire" }).catch(() => {}); } catch (_) {}
+      }
+    }
+
     update(_t, delta) {
       const dt = Math.min(delta / 1000, 1 / 30);
       if (this.gameOver) {
@@ -1287,10 +1518,12 @@
       this.updatePhysics(dt);
       this.updateCombo(dt);
       this.updateParticles(dt);
+      this.updateGhost();
       this.updateCamera(dt);
       this.drawBackground();
       this.drawWalls();
       this.drawFloors();
+      this.drawGhost();
       this.drawParticles();
       this.drawPlayer();
       this.drawHUD();
