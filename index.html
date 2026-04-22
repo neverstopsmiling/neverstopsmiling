@@ -368,7 +368,11 @@
       this.score = 0;
       this.runStartTime = this.time ? this.time.now : 0;
 
+      // Combo
+      this.combo = { count: 0, timer: 0, longest: 0 };
+
       if (this.dom) this.dom.gameover.classList.remove("on");
+      this.buildHUD();
     }
 
     // Fresh run callable from button / keyboard restart
@@ -634,19 +638,189 @@
     onLand(floor) {
       const p = this.player;
       p.crouchT = 1;
-      p.currentFloor = floor.n;
-      if (floor.n > p.highestFloor) {
-        p.highestFloor = floor.n;
+      const fromFloor = p.jumpStartFloor;
+      const toFloor   = floor.n;
+      const prevFloor = p.currentFloor;
+      p.currentFloor = toFloor;
+
+      const cleared = toFloor - fromFloor;
+
+      // Scoring on new ground
+      if (toFloor > p.highestFloor) {
+        const gained = toFloor - p.highestFloor;
+        const mult = 1 + this.combo.count * 0.5;
+        this.score += Math.round(CFG.POINTS_PER_FLOOR * gained * mult);
+        p.highestFloor = toFloor;
+
         // Keep the tower built well above the player
-        const wantUpTo = floor.n + 80;
+        const wantUpTo = toFloor + 80;
         if (wantUpTo > this.maxSpawnedFloor) {
           for (let k = this.maxSpawnedFloor + 1; k <= wantUpTo; k++) this._createFloor(k);
+        }
+      } else if (toFloor < prevFloor) {
+        // Fell to a lower floor - revoke points for the drop.
+        const lost = prevFloor - toFloor;
+        this.score = Math.max(0, this.score - lost * CFG.POINTS_PER_FLOOR);
+      }
+
+      // Combo update
+      if (cleared >= CFG.COMBO_MIN_FLOORS) {
+        this.combo.count += 1;
+        this.combo.timer  = CFG.COMBO_TIMEOUT_MS / 1000;
+        if (this.combo.count > this.combo.longest) this.combo.longest = this.combo.count;
+        this.maybeShowComboReward(this.combo.count);
+      } else if (this.combo.count > 0) {
+        this.breakCombo();
+      }
+    }
+
+    breakCombo() {
+      this.combo.count = 0;
+      this.combo.timer = 0;
+    }
+
+    maybeShowComboReward(n) {
+      const word =
+        n === 5   ? "GOOD!" :
+        n === 10  ? "SWEET!" :
+        n === 20  ? "EXCELLENT!" :
+        n === 30  ? "FANTASTIC!" :
+        n === 50  ? "EXTREME!" :
+        n === 100 ? "GODLIKE!" :
+        (n > 100 && (n - 100) % 25 === 0) ? "GODLIKE!" : null;
+      if (!word) return;
+      this.spawnRewardPopup(word);
+    }
+
+    spawnRewardPopup(text) {
+      const S = Math.min(this.W, this.H);
+      const color = this.combo.count >= 100 ? "#ff5cf0"
+                 : this.combo.count >= 50  ? "#ff3cdc"
+                 : this.combo.count >= 30  ? "#a93cff"
+                 : this.combo.count >= 20  ? "#ff2e2e"
+                 : this.combo.count >= 10  ? "#ff8a2a"
+                 : "#ffdf3c";
+      const label = this.add.text(this.W / 2, this.H * 0.38, text, {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.11) + "px",
+        fontStyle: "bold",
+        color,
+        stroke: "#000",
+        strokeThickness: 8,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1500).setAlpha(0);
+      this.tweens.add({
+        targets: label,
+        alpha: { from: 0, to: 1 },
+        scale: { from: 0.5, to: 1.15 },
+        y: this.H * 0.36,
+        duration: 260,
+        ease: "Back.Out",
+      });
+      this.tweens.add({
+        targets: label, alpha: 0, scale: 1.0, y: this.H * 0.30,
+        delay: 900, duration: 600, ease: "Sine.In",
+        onComplete: () => label.destroy(),
+      });
+    }
+
+    updateCombo(dt) {
+      if (this.combo.timer > 0) {
+        this.combo.timer -= dt;
+        if (this.combo.timer <= 0) {
+          this.combo.timer = 0;
+          if (this.combo.count > 0) this.breakCombo();
         }
       }
     }
 
     onWallBounce() {
       // Phase 7 plays audio here. Phase 6 adds particles.
+    }
+
+    // -----------------------------------------------------------
+    // HUD - floor / score / best + combo meter
+    // -----------------------------------------------------------
+    buildHUD() {
+      if (this.hud) this.hud.container.destroy();
+      const c = this.add.container(0, 0).setScrollFactor(0).setDepth(1100);
+      const S = Math.min(this.W, this.H);
+      const pad = Math.round(S * 0.025);
+      const big = Math.max(18, Math.round(S * 0.045));
+      const sm  = Math.max(13, Math.round(S * 0.032));
+
+      const floorTxt = this.add.text(pad, pad, "FLOOR 0", {
+        fontFamily: "Courier New, monospace",
+        fontSize: big + "px", fontStyle: "bold",
+        color: "#9cd9ff", stroke: "#000", strokeThickness: 4,
+      });
+      c.add(floorTxt);
+
+      const scoreTxt = this.add.text(this.W / 2, pad, "0", {
+        fontFamily: "Courier New, monospace",
+        fontSize: big + "px", fontStyle: "bold",
+        color: "#ffffff", stroke: "#000", strokeThickness: 5,
+      }).setOrigin(0.5, 0);
+      c.add(scoreTxt);
+
+      const bestTxt = this.add.text(this.W - pad, pad, "BEST " + this.best.score, {
+        fontFamily: "Courier New, monospace",
+        fontSize: sm + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 3,
+      }).setOrigin(1, 0);
+      c.add(bestTxt);
+
+      // Combo meter (vertical bar on left)
+      const meterBG   = this.add.graphics(); c.add(meterBG);
+      const meterFill = this.add.graphics(); c.add(meterFill);
+      const multTxt   = this.add.text(pad + 18, this.H * 0.5, "", {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.08) + "px", fontStyle: "bold",
+        color: "#ffdf3c", stroke: "#000", strokeThickness: 5,
+      }).setOrigin(0, 0.5);
+      c.add(multTxt);
+      multTxt.setVisible(false);
+
+      this.hud = {
+        container: c,
+        floorTxt, scoreTxt, bestTxt, meterBG, meterFill, multTxt,
+        pad, big, sm, S,
+      };
+    }
+
+    drawHUD() {
+      if (!this.hud) return;
+      const h = this.hud;
+      h.floorTxt.setText("FLOOR " + this.player.highestFloor);
+      h.scoreTxt.setText(String(this.score));
+      h.bestTxt.setText("BEST " + Math.max(this.best.score, this.score));
+
+      const mbg = h.meterBG, mf = h.meterFill;
+      mbg.clear(); mf.clear();
+      const mx = h.pad;
+      const myTop = this.H * 0.25;
+      const mw = 12, mh = this.H * 0.50;
+      mbg.fillStyle(0x000000, 0.50);
+      mbg.fillRoundedRect(mx - 2, myTop - 2, mw + 4, mh + 4, 4);
+      mbg.fillStyle(0x0a1428, 1);
+      mbg.fillRoundedRect(mx, myTop, mw, mh, 3);
+
+      if (this.combo.count > 0 && this.combo.timer > 0) {
+        const frac = Phaser.Math.Clamp(this.combo.timer / (CFG.COMBO_TIMEOUT_MS / 1000), 0, 1);
+        const fillH = mh * frac;
+        const color =
+          this.combo.count >= 100 ? 0xff5cf0 :
+          this.combo.count >= 50  ? 0xff3cdc :
+          this.combo.count >= 30  ? 0xa93cff :
+          this.combo.count >= 20  ? 0xff2e2e :
+          this.combo.count >= 10  ? 0xff8a2a :
+          0xffdf3c;
+        mf.fillStyle(color, 1);
+        mf.fillRect(mx, myTop + (mh - fillH), mw, fillH);
+        h.multTxt.setText("x" + this.combo.count);
+        h.multTxt.setVisible(true);
+      } else {
+        h.multTxt.setVisible(false);
+      }
     }
 
     // -----------------------------------------------------------
@@ -700,12 +874,18 @@
 
     triggerGameOver() {
       this.gameOver = true;
-      // Persist floor best (score comes in Phase 5)
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
         lsSet(LS_KEYS.bestFloor, this.best.floor);
       }
-      // Fill + show DOM overlay
+      if (this.score > this.best.score) {
+        this.best.score = this.score;
+        lsSet(LS_KEYS.bestScore, this.best.score);
+      }
+      if (this.combo.longest > this.best.longestCombo) {
+        this.best.longestCombo = this.combo.longest;
+        lsSet(LS_KEYS.longestCombo, this.best.longestCombo);
+      }
       if (this.dom) {
         this.dom.goFloor.textContent  = this.player.highestFloor;
         this.dom.goScore.textContent  = this.score;
@@ -774,14 +954,17 @@
         this.drawWalls();
         this.drawFloors();
         this.drawPlayer();
+        this.drawHUD();
         return;
       }
       this.readInput();
       this.updatePhysics(dt);
+      this.updateCombo(dt);
       this.updateCamera(dt);
       this.drawWalls();
       this.drawFloors();
       this.drawPlayer();
+      this.drawHUD();
       this.tickHurryUp();
       this.checkGameOver();
     }
