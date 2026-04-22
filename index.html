@@ -269,8 +269,22 @@
     drawBackground() {
       const g = this.bgGfx;
       g.clear();
-      g.fillStyle(0x05080f, 1);
-      g.fillRect(0, 0, this.W, this.H);
+      const theme = this.currentTheme ? this.currentTheme() : this.floorTheme(0);
+      const steps = 12;
+      for (let i = 0; i < steps; i++) {
+        const t = i / (steps - 1);
+        const c = lerpColor(theme.bg1, theme.bg2, t);
+        g.fillStyle(c, 1);
+        g.fillRect(0, (this.H * i) / steps, this.W, this.H / steps + 1);
+      }
+      // Subtle parallax dots by band
+      const band = this.player ? Math.floor(this.player.highestFloor / 100) : 0;
+      const seed = 1337 + band * 7;
+      g.fillStyle(theme.accent, 0.30);
+      for (let i = 0; i < 40; i++) {
+        const r = ((seed * (i + 1)) * 9301 + 49297) % 233280;
+        g.fillRect(r % this.W, (r >> 3) % this.H, 1 + (i % 3), 1 + (i % 3));
+      }
     }
 
     // -----------------------------------------------------------
@@ -346,7 +360,18 @@
         currentFloor: 0,
         highestFloor: 0,
         jumpStartFloor: 0,
+        // Flip / somersault
+        rotation: 0,
+        rotRate: 0,
+        jumpSpeedFrac: 0,
       };
+      this.bestFlips = lsGetInt(LS_KEYS.bestFlips, 0);
+
+      // Particles - light AoS
+      this.particles = [];
+
+      // Milestones already fired this run
+      this.milestonesFired = {};
 
       // Procedural floors
       this.floors = [];
@@ -543,6 +568,16 @@
         p.vy = -(CFG.BASE_JUMP + speedFrac * CFG.BONUS_JUMP);
         p.onGround = false;
         p.jumpStartFloor = p.currentFloor;
+        p.jumpSpeedFrac = speedFrac;
+        // Somersault flip at high speed (Icy Tower signature move)
+        if (speedFrac >= CFG.FLIP_MIN_SPEED_FRAC) {
+          const dir = Math.sign(p.vx) || 1;
+          const turnsPerSec = 2.2 * (speedFrac - CFG.FLIP_MIN_SPEED_FRAC) / (1 - CFG.FLIP_MIN_SPEED_FRAC);
+          p.rotRate = dir * Math.PI * 2 * turnsPerSec;
+        } else {
+          p.rotRate = 0;
+        }
+        p.rotation = 0;
         this.jumpBufferUntil = 0;
       }
 
@@ -564,6 +599,14 @@
         p.runPhase = 0;
       }
       if (p.crouchT > 0) p.crouchT = Math.max(0, p.crouchT - dt / 0.15);
+
+      // Flip rotation - spin airborne, ease to 0 on ground
+      if (!p.onGround && p.rotRate !== 0) {
+        p.rotation += p.rotRate * dt;
+      } else if (p.onGround && p.rotation !== 0) {
+        const ease = Math.sign(p.rotation) * Math.min(Math.abs(p.rotation), Math.PI * 6 * dt);
+        p.rotation -= ease;
+      }
     }
 
     // One-way platforms - only land from above, pass up through.
@@ -643,6 +686,25 @@
       const prevFloor = p.currentFloor;
       p.currentFloor = toFloor;
 
+      // Landing particle burst
+      this.spawnLandParticles(p.x, floor.y, this.floorTheme(floor.n));
+
+      // Flip bonus on landing
+      const flips = Math.max(0, Math.floor(Math.abs(p.rotation) / (Math.PI * 2)));
+      if (flips > 0) {
+        const mult = 1 + this.combo.count * 0.5;
+        const bonus = Math.round(100 * flips * mult);
+        this.score += bonus;
+        if (flips > this.bestFlips) {
+          this.bestFlips = flips;
+          lsSet(LS_KEYS.bestFlips, this.bestFlips);
+        }
+        this.spawnFlipPopup(flips, bonus);
+      }
+      p.rotation = 0;
+      p.rotRate = 0;
+      p.jumpSpeedFrac = 0;
+
       const cleared = toFloor - fromFloor;
 
       // Scoring on new ground
@@ -650,6 +712,7 @@
         const gained = toFloor - p.highestFloor;
         const mult = 1 + this.combo.count * 0.5;
         this.score += Math.round(CFG.POINTS_PER_FLOOR * gained * mult);
+        const prevHighest = p.highestFloor;
         p.highestFloor = toFloor;
 
         // Keep the tower built well above the player
@@ -657,20 +720,123 @@
         if (wantUpTo > this.maxSpawnedFloor) {
           for (let k = this.maxSpawnedFloor + 1; k <= wantUpTo; k++) this._createFloor(k);
         }
+
+        // Milestones
+        for (let m = 0; m < CFG.MILESTONES.length; m++) {
+          const ms = CFG.MILESTONES[m];
+          if (prevHighest < ms && toFloor >= ms && !this.milestonesFired[ms]) {
+            this.milestonesFired[ms] = true;
+            this.triggerMilestone(ms);
+          }
+        }
       } else if (toFloor < prevFloor) {
-        // Fell to a lower floor - revoke points for the drop.
         const lost = prevFloor - toFloor;
         this.score = Math.max(0, this.score - lost * CFG.POINTS_PER_FLOOR);
       }
 
-      // Combo update
-      if (cleared >= CFG.COMBO_MIN_FLOORS) {
+      // Combo update: flips ALSO count as combo-continuing
+      const qualifying = cleared >= CFG.COMBO_MIN_FLOORS || flips > 0;
+      if (qualifying) {
         this.combo.count += 1;
         this.combo.timer  = CFG.COMBO_TIMEOUT_MS / 1000;
         if (this.combo.count > this.combo.longest) this.combo.longest = this.combo.count;
         this.maybeShowComboReward(this.combo.count);
       } else if (this.combo.count > 0) {
         this.breakCombo();
+      }
+    }
+
+    spawnFlipPopup(flips, bonus) {
+      const word = flips === 1 ? "1 FLIP" : `${flips} FLIPS`;
+      const color = flips >= 3 ? "#ff5cf0" : flips >= 2 ? "#ffaa00" : "#fff56a";
+      const S = Math.min(this.W, this.H);
+      const label = this.add.text(this.player.x, this.player.y - this.player.h - 10,
+        `${word}  +${bonus}`, {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.045) + "px",
+        fontStyle: "bold",
+        color,
+        stroke: "#000",
+        strokeThickness: 5,
+      }).setOrigin(0.5).setDepth(11);
+      this.tweens.add({
+        targets: label,
+        y: label.y - 40,
+        alpha: { from: 1, to: 0 },
+        scale: { from: 0.6, to: 1.15 },
+        duration: 900,
+        ease: "Sine.Out",
+        onComplete: () => label.destroy(),
+      });
+    }
+
+    triggerMilestone(n) {
+      const S = Math.min(this.W, this.H);
+      const msg = n >= 1000 ? `FLOOR ${n}!\nLEGEND.`
+                : n >= 500  ? `FLOOR ${n}!\nINCREDIBLE!`
+                : n >= 250  ? `FLOOR ${n}!\nKEEP GOING!`
+                :             `FLOOR ${n}!\nNICE CLIMB!`;
+      const label = this.add.text(this.W / 2, this.H * 0.42, msg, {
+        fontFamily: "Courier New, monospace",
+        fontSize: Math.round(S * 0.09) + "px",
+        fontStyle: "bold",
+        color: "#fff", stroke: "#000", strokeThickness: 8,
+        align: "center",
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1600).setAlpha(0);
+      this.tweens.add({
+        targets: label, alpha: 1, scale: { from: 0.5, to: 1.2 },
+        duration: 260, ease: "Back.Out",
+      });
+      this.tweens.add({
+        targets: label, alpha: 0, scale: 1.3, y: label.y - 40,
+        delay: 1400, duration: 700, ease: "Sine.In",
+        onComplete: () => label.destroy(),
+      });
+      const flash = this.add.graphics().setScrollFactor(0).setDepth(1550);
+      flash.fillStyle(this.currentTheme().accent, 0.30);
+      flash.fillRect(0, 0, this.W, this.H);
+      this.tweens.add({
+        targets: flash, alpha: 0, duration: 500, ease: "Sine.Out",
+        onComplete: () => flash.destroy(),
+      });
+    }
+
+    // Particles (light, CPU-friendly)
+    spawnLandParticles(x, y, theme) {
+      for (let i = 0; i < 14; i++) {
+        const a = Math.PI + (Math.random() - 0.5) * Math.PI * 0.9;
+        const sp = 40 + Math.random() * 90;
+        this.particles.push({
+          x: x + (Math.random() - 0.5) * 12,
+          y: y - 2,
+          vx: Math.cos(a) * sp,
+          vy: Math.sin(a) * sp,
+          life: 0.5 + Math.random() * 0.3,
+          maxLife: 0.8,
+          size: 1 + Math.floor(Math.random() * 3),
+          color: i % 3 === 0 ? theme.accent : theme.top,
+        });
+      }
+    }
+    updateParticles(dt) {
+      const arr = this.particles;
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const pt = arr[i];
+        pt.life -= dt;
+        if (pt.life <= 0) { arr.splice(i, 1); continue; }
+        pt.vy += 420 * dt;
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+      }
+    }
+    drawParticles() {
+      const g = this.particlesGfx;
+      g.clear();
+      for (let i = 0; i < this.particles.length; i++) {
+        const pt = this.particles[i];
+        const a = Math.max(0, Math.min(1, pt.life / pt.maxLife));
+        g.fillStyle(pt.color, a);
+        g.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
       }
     }
 
@@ -900,11 +1066,50 @@
     // Rendering - floors + walls
     // -----------------------------------------------------------
     floorTheme(n) {
-      if (n < 100) return { top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c };
-      if (n < 200) return { top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x333333 };
-      if (n < 300) return { top: 0xffb27a, side: 0xcc3a0a, wall: 0x5a1400 };
-      if (n < 400) return { top: 0xb8f0a8, side: 0x2a7a38, wall: 0x14401e };
-      return           { top: 0xd8c0ff, side: 0x5e3fa0, wall: 0x261048 };
+      if (n < 100) return {
+        top: 0x9cd9ff, side: 0x4aa8e0, wall: 0x2a5c8c,
+        bg1: 0x0b1d3a, bg2: 0x1a3d6c,
+        accent: 0xe8faff,
+      };
+      if (n < 200) return {
+        top: 0xc9c9c9, side: 0x6a6a6a, wall: 0x2e2e34,
+        bg1: 0x14141a, bg2: 0x2a2a32,
+        accent: 0xffcf80,
+      };
+      if (n < 300) return {
+        top: 0xffb27a, side: 0xcc3a0a, wall: 0x5a1400,
+        bg1: 0x200500, bg2: 0x501200,
+        accent: 0xffd27a,
+      };
+      if (n < 400) return {
+        top: 0xb8f0a8, side: 0x2a7a38, wall: 0x14401e,
+        bg1: 0x061505, bg2: 0x0f2e18,
+        accent: 0xfff0a8,
+      };
+      return {
+        top: 0xd8c0ff, side: 0x5e3fa0, wall: 0x261048,
+        bg1: 0x010014, bg2: 0x0c0830,
+        accent: 0xfff0ff,
+      };
+    }
+    // Smooth blend between current and next-band theme in the last 10
+    // floors before a boundary.
+    currentTheme() {
+      const n = this.player ? this.player.highestFloor : 0;
+      const band = Math.floor(n / 100);
+      const into = n - band * 100;
+      if (into < 90) return this.floorTheme(n);
+      const t = (into - 90) / 10;
+      const a = this.floorTheme(n);
+      const b = this.floorTheme(band * 100 + 100);
+      return {
+        top:    lerpColor(a.top,    b.top,    t),
+        side:   lerpColor(a.side,   b.side,   t),
+        wall:   lerpColor(a.wall,   b.wall,   t),
+        bg1:    lerpColor(a.bg1,    b.bg1,    t),
+        bg2:    lerpColor(a.bg2,    b.bg2,    t),
+        accent: lerpColor(a.accent, b.accent, t),
+      };
     }
 
     drawFloors() {
@@ -960,9 +1165,12 @@
       this.readInput();
       this.updatePhysics(dt);
       this.updateCombo(dt);
+      this.updateParticles(dt);
       this.updateCamera(dt);
+      this.drawBackground();
       this.drawWalls();
       this.drawFloors();
+      this.drawParticles();
       this.drawPlayer();
       this.drawHUD();
       this.tickHurryUp();
