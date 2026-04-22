@@ -96,9 +96,8 @@
       pointer-events: none;
     }
 
-    /* Tilt enable button (iOS 13+ permission gate). Small, top-center,
-       hidden the moment tilt is granted or once any orientation events
-       start flowing. Never overlaps gameplay at the bottom. */
+    /* Tilt enable button (iOS 13+ permission gate). Small, top-center.
+       z-index above overlays so it's tappable even on the title screen. */
     #tilt-enable {
       position: fixed;
       top: 12px;
@@ -113,7 +112,7 @@
       letter-spacing: 1px;
       text-transform: uppercase;
       display: none;
-      z-index: 30;
+      z-index: 70;
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
     }
 
@@ -135,6 +134,106 @@
     @keyframes hurry-pulse {
       from { transform: translateX(-50%) scale(1);    opacity: 1;   }
       to   { transform: translateX(-50%) scale(1.08); opacity: 0.6; }
+    }
+
+    /* Pause button - always visible during play, top-right */
+    #pause-btn {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      border: 2px solid #9cd9ff;
+      background: rgba(0, 0, 0, 0.55);
+      color: #9cd9ff;
+      font: 700 22px/1 "Courier New", monospace;
+      display: none;
+      z-index: 35;
+      padding: 0;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #title .logo {
+      font: 900 clamp(40px, 14vmin, 120px)/1 "Courier New", monospace;
+      color: #9cd9ff;
+      text-shadow: 0 0 12px #0b2848, 6px 6px 0 #000;
+      letter-spacing: 6px;
+      margin-bottom: 4px;
+    }
+    #title .subtitle {
+      font: 700 clamp(12px, 3vmin, 18px)/1 "Courier New", monospace;
+      color: #ffdf3c;
+      letter-spacing: 4px;
+      margin-bottom: 16px;
+    }
+    #title .hint {
+      font: 700 clamp(10px, 2.4vmin, 14px)/1.4 "Courier New", monospace;
+      color: #9cd9ff;
+      letter-spacing: 1px;
+      margin-top: 12px;
+    }
+    #title .selchar {
+      font: 700 clamp(11px, 2.6vmin, 15px)/1 "Courier New", monospace;
+      color: #ffffff;
+      margin-top: 4px;
+    }
+
+    #character-select .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      width: min(92vw, 520px);
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 6px;
+    }
+    @media (min-width: 640px) {
+      #character-select .grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    #character-select .cell {
+      background: rgba(18, 24, 42, 0.95);
+      border: 3px solid #9cd9ff;
+      border-radius: 12px;
+      padding: 10px 6px;
+      font: 700 clamp(10px, 2.6vmin, 14px)/1.2 "Courier New", monospace;
+      color: #fff;
+      text-align: center;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #character-select .cell.sel {
+      background: rgba(34, 59, 102, 0.95);
+      border-color: #ffdf3c;
+      color: #ffdf3c;
+    }
+
+    #countdown {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.60);
+      z-index: 55;
+      pointer-events: none;
+    }
+    #countdown .num {
+      font: 900 min(40vw, 240px)/1 "Courier New", monospace;
+      color: #ffdf3c;
+      text-shadow: 0 0 12px #000;
+    }
+    #countdown .sub {
+      font: 700 min(6vw, 36px)/1 "Courier New", monospace;
+      color: #fff;
+      margin-top: 20px;
+      text-shadow: 0 3px 10px #000;
     }
   </style>
 </head>
@@ -158,6 +257,46 @@
   <div id="hurry-up">HURRY UP!</div>
   <button id="tilt-enable" type="button">Enable Tilt Controls</button>
   <div id="share-toast">COPIED!</div>
+
+  <!-- Always-visible in-game PAUSE button -->
+  <button id="pause-btn" type="button" aria-label="Pause">&#10074;&#10074;</button>
+
+  <!-- Title screen -->
+  <div id="title" class="overlay on">
+    <div class="logo">FROSTSPIRE</div>
+    <div class="subtitle">A VERTICAL CLIMB</div>
+    <div id="title-preview" style="margin: 4px 0 0;"></div>
+    <div id="title-selchar" class="selchar">SELECTED: ARCTIC CLIMBER</div>
+    <button id="btn-start">&#9654;  START GAME</button>
+    <button id="btn-title-char" class="tertiary">CHOOSE CHARACTER &#9654;</button>
+    <div class="hint">
+      DESKTOP: &#8592; &#8594; / A D &nbsp;+&nbsp; SPACE<br>
+      MOBILE: TILT OR LEFT/RIGHT HALF &nbsp;+&nbsp; TAP
+    </div>
+  </div>
+
+  <!-- Pause menu -->
+  <div id="pause-menu" class="overlay">
+    <h1 style="color:#9cd9ff;">PAUSED</h1>
+    <button id="btn-resume">&#9654;  RESUME</button>
+    <button id="btn-pause-char" class="tertiary">CHARACTER</button>
+    <button id="btn-mute"       class="secondary">MUTE</button>
+    <button id="btn-pause-restart" class="secondary">RESTART</button>
+    <button id="btn-home"       class="secondary">HOME</button>
+  </div>
+
+  <!-- Character select -->
+  <div id="character-select" class="overlay">
+    <h1 style="color:#ffdf3c; font-size: clamp(22px, 6vmin, 44px);">CHOOSE A CLIMBER</h1>
+    <div class="grid" id="char-grid"></div>
+    <button id="btn-char-close" class="secondary">CLOSE</button>
+  </div>
+
+  <!-- Countdown -->
+  <div id="countdown">
+    <div class="num" id="cd-num">3</div>
+    <div class="sub" id="cd-sub">GET READY</div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
   <script>
@@ -214,6 +353,18 @@
     GHOST_SAMPLE_MS: 100,
     FLIP_MIN_SPEED_FRAC: 0.7,
   };
+
+  // Character roster - each has its own procedural drawer
+  const CHARACTERS = [
+    { id: "climber", name: "ARCTIC CLIMBER", drawFn: "drawCharClimber" },
+    { id: "penguin", name: "PENGUIN",        drawFn: "drawCharPenguin" },
+    { id: "dragon",  name: "DRAGON",         drawFn: "drawCharDragon"  },
+    { id: "trex",    name: "T-REX",          drawFn: "drawCharTrex"    },
+    { id: "yeti",    name: "YETI",           drawFn: "drawCharYeti"    },
+    { id: "robot",   name: "ROBOT",          drawFn: "drawCharRobot"   },
+    { id: "skater",  name: "SKATER",         drawFn: "drawCharSkater"  },
+    { id: "surfer",  name: "SURFER",         drawFn: "drawCharSurfer"  },
+  ];
 
   const LS_KEYS = {
     bestScore:    "frostspire.bestScore",
@@ -381,7 +532,6 @@
       this.scale.on("resize", this.onResize, this);
 
       this.audio = new AudioMgr();
-      // Browsers require a user gesture to kick AudioContext
       this.input.once("pointerdown", () => this.audio.init());
       this.input.keyboard.on("keydown", () => this.audio.init());
       this.input.keyboard.on("keydown-M", () => this.audio.toggleMute());
@@ -390,29 +540,252 @@
       this.resetRun();
       this.bindDomUI();
 
+      // Start on title screen. Physics frozen via state = "title".
+      this.state = "title";
+      this.gameOver = true;  // prevents physics/checkGameOver until start
+
       this.drawBackground();
     }
 
     bindDomUI() {
+      const $ = (id) => document.getElementById(id);
       this.dom = {
-        gameover:  document.getElementById("gameover"),
-        goFloor:   document.getElementById("go-floor"),
-        goScore:   document.getElementById("go-score"),
-        goBestF:   document.getElementById("go-best-floor"),
-        goBestS:   document.getElementById("go-best-score"),
-        btnRestart:document.getElementById("btn-restart"),
-        btnShare:  document.getElementById("btn-share"),
-        btnFlipTilt: document.getElementById("btn-flip-tilt"),
-        hurry:     document.getElementById("hurry-up"),
-        tiltBtn:   document.getElementById("tilt-enable"),
-        shareToast:document.getElementById("share-toast"),
+        gameover:   $("gameover"),
+        goFloor:    $("go-floor"),
+        goScore:    $("go-score"),
+        goBestF:    $("go-best-floor"),
+        goBestS:    $("go-best-score"),
+        btnRestart: $("btn-restart"),
+        btnShare:   $("btn-share"),
+        btnFlipTilt:$("btn-flip-tilt"),
+        hurry:      $("hurry-up"),
+        tiltBtn:    $("tilt-enable"),
+        shareToast: $("share-toast"),
+        pauseBtn:   $("pause-btn"),
+        title:      $("title"),
+        btnStart:   $("btn-start"),
+        btnTitleChar:$("btn-title-char"),
+        titleSelChar:$("title-selchar"),
+        titlePreview:$("title-preview"),
+        pauseMenu:  $("pause-menu"),
+        btnResume:  $("btn-resume"),
+        btnPauseChar:$("btn-pause-char"),
+        btnMute:    $("btn-mute"),
+        btnPauseRestart:$("btn-pause-restart"),
+        btnHome:    $("btn-home"),
+        charSel:    $("character-select"),
+        charGrid:   $("char-grid"),
+        btnCharClose:$("btn-char-close"),
+        countdown:  $("countdown"),
+        cdNum:      $("cd-num"),
+        cdSub:      $("cd-sub"),
       };
+
       this.dom.btnRestart.addEventListener("click", () => this.restartRun());
       this.dom.btnShare.addEventListener("click", () => this.shareScore());
       this.dom.btnFlipTilt.addEventListener("click", () => {
         this.tilt.invert = !this.tilt.invert;
         lsSet(LS_KEYS.tiltInvert, this.tilt.invert ? "1" : "0");
         this.dom.btnFlipTilt.textContent = "FLIP TILT: " + (this.tilt.invert ? "ON" : "OFF");
+      });
+
+      this.dom.btnStart.addEventListener("click", () => this.startFromTitle());
+      this.dom.btnTitleChar.addEventListener("click", () => this.openCharacterSelect("title"));
+      this.dom.pauseBtn.addEventListener("click", () => this.togglePause());
+      this.dom.btnResume.addEventListener("click", () => this.requestResume());
+      this.dom.btnPauseChar.addEventListener("click", () => this.openCharacterSelect("pause"));
+      this.dom.btnMute.addEventListener("click", () => {
+        const muted = this.audio.toggleMute();
+        this.dom.btnMute.textContent = muted ? "UNMUTE" : "MUTE";
+      });
+      this.dom.btnPauseRestart.addEventListener("click", () => {
+        this.closePauseMenu();
+        this.restartRun();
+      });
+      this.dom.btnHome.addEventListener("click", () => {
+        this.closePauseMenu();
+        this.goToTitle();
+      });
+      this.dom.btnCharClose.addEventListener("click", () => this.closeCharacterSelect());
+
+      // Keyboard: P / Esc to toggle pause during play
+      this.input.keyboard.on("keydown-P",   () => this.togglePause());
+      this.input.keyboard.on("keydown-ESC", () => this.togglePause());
+
+      this.state = "title";
+      this.refreshTitlePreview();
+    }
+
+    // Title preview uses a tiny inline SVG-ish via Phaser canvas... actually
+    // easier: draw the current character to a throwaway Graphics, rasterize
+    // to a small image, and place it in #title-preview.
+    // For simplicity we just render the name in the title (the big
+    // character preview would require more code). The live game is the
+    // preview once you hit START.
+    refreshTitlePreview() {
+      const entry = CHARACTERS.find(c => c.id === this.characterId) || CHARACTERS[0];
+      this.dom.titleSelChar.textContent = "SELECTED: " + entry.name;
+    }
+
+    setOverlay(id, on) {
+      const el = this.dom[id];
+      if (!el) return;
+      if (on) el.classList.add("on");
+      else    el.classList.remove("on");
+    }
+
+    // -----------------------------------------------------------
+    // State transitions
+    // -----------------------------------------------------------
+    startFromTitle() {
+      if (this.audio) this.audio.init();
+      this.setOverlay("title", false);
+      this.dom.pauseBtn.style.display = "block";
+      this.state = "playing";
+      this.resetRun();
+    }
+
+    goToTitle() {
+      this.setOverlay("gameover", false);
+      this.setOverlay("pauseMenu", false);
+      this.setOverlay("charSel", false);
+      this.dom.pauseBtn.style.display = "none";
+      this.setOverlay("title", true);
+      this.state = "title";
+      this.refreshTitlePreview();
+      this.gameOver = true; // freeze physics until start clicked
+    }
+
+    togglePause() {
+      if (this.state === "playing") this.openPauseMenu();
+      else if (this.state === "paused") this.requestResume();
+    }
+    openPauseMenu() {
+      this.state = "paused";
+      this.dom.btnMute.textContent = this.audio.muted ? "UNMUTE" : "MUTE";
+      this.setOverlay("pauseMenu", true);
+      this.dom.pauseBtn.style.display = "none";
+    }
+    closePauseMenu() {
+      this.setOverlay("pauseMenu", false);
+    }
+    requestResume() {
+      this.closePauseMenu();
+      this.state = "countdown";
+      this.jumpBufferUntil = 0;
+      this.touchLeft = this.touchRight = false;
+      this._startCountdown(3, () => {
+        this.state = "playing";
+        this.dom.pauseBtn.style.display = "block";
+      });
+    }
+    _startCountdown(from, done) {
+      const cd = this.dom.countdown;
+      cd.style.display = "flex";
+      this.dom.cdSub.style.display = "block";
+      this.dom.cdSub.textContent = "GET READY";
+      const beep = (f) => { if (this.audio) this.audio._blip({ type: "triangle", f0: f, dur: 0.12, vol: 0.22 }); };
+      let n = from;
+      this.dom.cdNum.textContent = String(n);
+      beep(660);
+      const step = () => {
+        n -= 1;
+        if (n > 0) {
+          this.dom.cdNum.textContent = String(n);
+          beep(780 + (from - n) * 50);
+          setTimeout(step, 1000);
+        } else {
+          this.dom.cdNum.textContent = "GO!";
+          this.dom.cdSub.style.display = "none";
+          beep(1320);
+          setTimeout(() => { cd.style.display = "none"; if (done) done(); }, 400);
+        }
+      };
+      setTimeout(step, 1000);
+    }
+
+    openCharacterSelect(from) {
+      this._charSelectFrom = from || "pause";
+      this.setOverlay("title", false);
+      this.setOverlay("pauseMenu", false);
+      this.buildCharacterGrid();
+      this.setOverlay("charSel", true);
+    }
+    closeCharacterSelect() {
+      this.setOverlay("charSel", false);
+      if (this._charSelectFrom === "title") {
+        this.refreshTitlePreview();
+        this.setOverlay("title", true);
+      } else {
+        // Re-open pause menu if we were paused
+        if (this.state === "paused") this.setOverlay("pauseMenu", true);
+      }
+    }
+    buildCharacterGrid() {
+      const grid = this.dom.charGrid;
+      grid.innerHTML = "";
+      CHARACTERS.forEach((c) => {
+        const cell = document.createElement("div");
+        cell.className = "cell" + (c.id === this.characterId ? " sel" : "");
+        cell.innerHTML = `<div style="width:64px;height:72px;" class="preview" data-id="${c.id}"></div>
+                          <div>${c.name}</div>`;
+        cell.addEventListener("click", () => {
+          this.characterId = c.id;
+          try { localStorage.setItem(LS_KEYS.character, c.id); } catch (_) {}
+          this.characterDrawer = this[c.drawFn] || this.drawCharClimber;
+          this.closeCharacterSelect();
+        });
+        grid.appendChild(cell);
+      });
+      // Render previews after the cells mount so we know their layout.
+      setTimeout(() => this._renderCharPreviews(), 0);
+    }
+    _renderCharPreviews() {
+      // Each preview is a small canvas drawn with the character drawer.
+      const hosts = this.dom.charGrid.querySelectorAll(".preview");
+      hosts.forEach((host) => {
+        const id = host.dataset.id;
+        const entry = CHARACTERS.find(c => c.id === id);
+        if (!entry) return;
+        const fn = this[entry.drawFn];
+        if (!fn) return;
+        // Tiny Phaser graphics drawn offscreen, then snapshot to ImageData
+        // on a DOM canvas. Simpler: draw directly into a 2D canvas.
+        const canvas = document.createElement("canvas");
+        canvas.width = 64; canvas.height = 72;
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = false;
+        const scale = 2;
+        ctx.translate(canvas.width / 2, canvas.height / 2 + 2);
+        ctx.scale(scale, scale);
+        // Shim minimal "g" with the fillStyle/fillRect calls the drawers use
+        const shim = {
+          fillStyle(color, alpha) {
+            const r = (color >> 16) & 0xff;
+            const gg = (color >> 8) & 0xff;
+            const b = color & 0xff;
+            ctx.fillStyle = `rgba(${r},${gg},${b},${alpha == null ? 1 : alpha})`;
+          },
+          fillRect(x, y, w, h) { ctx.fillRect(x, y, w, h); },
+          fillTriangle(x1, y1, x2, y2, x3, y3) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+            ctx.closePath(); ctx.fill();
+          },
+          fillCircle(x, y, r) {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+          },
+          clear() { /* no-op for preview */ },
+        };
+        fn.call(this, shim, {
+          w: CFG.CHAR_W, h: CFG.CHAR_H, lean: 0,
+          airborne: false, speedFrac: 0, runPhase: 0,
+          now: 0, facing: 1,
+        });
+        host.innerHTML = "";
+        host.appendChild(canvas);
       });
     }
 
@@ -625,6 +998,13 @@
         ? { samples: storedGhost.samples, startTime: this.time ? this.time.now : 0, index: 0 }
         : null;
 
+      // Selected character -> drawer
+      let charId = "climber";
+      try { charId = localStorage.getItem(LS_KEYS.character) || "climber"; } catch (_) {}
+      const entry = CHARACTERS.find(c => c.id === charId) || CHARACTERS[0];
+      this.characterId = entry.id;
+      this.characterDrawer = this[entry.drawFn] || this.drawCharClimber;
+
       // Procedural floors
       this.floors = [];
       this.maxSpawnedFloor = -1;
@@ -654,7 +1034,18 @@
 
     // Fresh run callable from button / keyboard restart
     restartRun() {
+      if (this.dom) {
+        this.dom.gameover.classList.remove("on");
+        this.dom.pauseMenu.classList.remove("on");
+        this.dom.charSel.classList.remove("on");
+        this.dom.title.classList.remove("on");
+        this.dom.hurry.style.display = "none";
+        this.dom.btnFlipTilt.style.display = "none";
+        this.dom.countdown.style.display = "none";
+        this.dom.pauseBtn.style.display = "block";
+      }
       this.resetRun();
+      this.state = "playing";
     }
 
     // -----------------------------------------------------------
@@ -688,8 +1079,9 @@
       this.maxSpawnedFloor = n;
     }
 
-    // Pixel-art climber. Rendered relative to (0,0) = body center
-    // so Phase 6's flip can rotate the Graphics object directly.
+    // Dispatches to the selected character's drawer. The outer frame
+    // (position / rotation / facing scale) is common; drawers paint
+    // in local coords around (0,0) = body center.
     drawPlayer() {
       const p = this.player;
       const g = this.playerGfx;
@@ -704,31 +1096,33 @@
       const speedFrac = Phaser.Math.Clamp(Math.abs(p.vx) / CFG.MAX_H_SPEED, 0, 1);
       const lean = p.onGround ? p.facing * speedFrac * 4 : 0;
 
-      // Position + facing applied via Graphics transform
       g.x = p.x;
       g.y = p.y - h / 2;
-      g.rotation = 0;
+      g.rotation = p.rotation;
       g.scaleX = p.facing < 0 ? -1 : 1;
       g.scaleY = 1;
 
-      const bx = -w / 2;
-      const by = -h / 2;
+      const opts = { w, h, lean, airborne, speedFrac, runPhase: p.runPhase, now: this.time.now, facing: p.facing };
+      const drawer = this.characterDrawer || this.drawCharClimber;
+      drawer.call(this, g, opts);
+    }
 
-      // --- Legs ---
+    drawCharClimber(g, o) {
+      const { w, h, lean, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
       const legW = 5;
       const legH = Math.max(4, h * 0.28);
       const legY = by + h - legH;
       const legSpread = w * 0.25;
       const legLX = -legSpread - legW / 2;
       const legRX =  legSpread - legW / 2;
-
       g.fillStyle(0x2b2b30, 1);
       if (airborne) {
         const tuckY = legY - legH * 0.6;
         g.fillRect(legLX, tuckY, legW, legH);
         g.fillRect(legRX, tuckY, legW, legH);
-      } else if (Math.abs(p.vx) > 20) {
-        const s = Math.sin(p.runPhase);
+      } else if (speedFrac > 0.05) {
+        const s = Math.sin(runPhase);
         const off = s * legH * 0.4;
         g.fillRect(legLX, legY - off, legW, legH);
         g.fillRect(legRX, legY + off, legW, legH);
@@ -736,8 +1130,6 @@
         g.fillRect(legLX, legY, legW, legH);
         g.fillRect(legRX, legY, legW, legH);
       }
-
-      // Boots
       g.fillStyle(0x111318, 1);
       const bootH = 3;
       if (airborne) {
@@ -748,8 +1140,6 @@
         g.fillRect(legLX - 1, legY + legH - bootH, legW + 2, bootH);
         g.fillRect(legRX - 1, legY + legH - bootH, legW + 2, bootH);
       }
-
-      // Parka body
       const bodyH = h * 0.46;
       const bodyY = by + h * 0.30;
       const bodyX = bx + lean;
@@ -757,24 +1147,17 @@
       g.fillRect(bodyX, bodyY, w, bodyH);
       g.fillStyle(0xffffff, 1);
       g.fillRect(bodyX, bodyY + bodyH - 3, w, 3);
-
-      // Arms
       g.fillStyle(0x2067b0, 1);
       const armW = 4, armH = bodyH * 0.8;
       if (airborne) {
         g.fillRect(bodyX - armW + 1, bodyY - armH * 0.4, armW, armH);
         g.fillRect(bodyX + w - 1,    bodyY - armH * 0.4, armW, armH);
       } else {
-        const armSwing = Math.abs(p.vx) > 20 ? Math.sin(p.runPhase + Math.PI) * 4 : 0;
-        g.fillRect(bodyX - armW + 1, bodyY + armSwing, armW, armH);
-        g.fillRect(bodyX + w - 1,    bodyY - armSwing, armW, armH);
+        const s = speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 4 : 0;
+        g.fillRect(bodyX - armW + 1, bodyY + s, armW, armH);
+        g.fillRect(bodyX + w - 1,    bodyY - s, armW, armH);
       }
-
-      // Head + beanie + goggles
-      const headW = w - 4;
-      const headH = h * 0.30;
-      const headX = bx + 2 + lean;
-      const headY = by;
+      const headW = w - 4, headH = h * 0.30, headX = bx + 2 + lean, headY = by;
       g.fillStyle(0xf2d1a8, 1);
       g.fillRect(headX, headY + 4, headW, headH - 4);
       g.fillStyle(0xd03030, 1);
@@ -786,13 +1169,290 @@
       g.fillRect(headX, headY + 7, headW, 4);
       g.fillStyle(0xff9a3d, 1);
       g.fillRect(headX + headW - 7, headY + 8, 5, 2);
-
-      // Scarf flutter
       g.fillStyle(0xffdc4a, 1);
       const scarfY = bodyY + 2;
-      const flutter = Math.sin(this.time.now * 0.02) * 2;
+      const flutter = Math.sin(now * 0.02) * 2;
       g.fillRect(bodyX - 3, scarfY, 3, 4);
       g.fillRect(bodyX - 5, scarfY + 2 + flutter, 3, 3);
+    }
+
+    drawCharPenguin(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+      const waddle = !airborne && speedFrac > 0.05 ? Math.sin(runPhase * 0.8) * 2 : 0;
+      g.fillStyle(0xff8a2a, 1);
+      if (airborne) {
+        g.fillRect(-w * 0.4, by + h - 10, w * 0.35, 4);
+        g.fillRect( w * 0.05, by + h - 10, w * 0.35, 4);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
+        g.fillRect(bx + 1, by + h - 5 - s, w * 0.45, 4);
+        g.fillRect(bx + w - w*0.45 - 1, by + h - 5 + s, w * 0.45, 4);
+      }
+      g.fillStyle(0x0d0d14, 1);
+      g.fillRect(bx, by + h * 0.20 + waddle, w, h * 0.70);
+      g.fillRect(bx + 2, by + h * 0.13 + waddle, w - 4, h * 0.10);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + 4, by + h * 0.30 + waddle, w - 8, h * 0.45);
+      g.fillStyle(0x0d0d14, 1);
+      const flap = airborne ? Math.sin(now * 0.025) * 4 : 0;
+      g.fillRect(bx - 2, by + h * 0.30 + waddle - flap, 4, h * 0.40);
+      g.fillRect(bx + w - 2, by + h * 0.30 + waddle + flap, 4, h * 0.40);
+      g.fillRect(-w * 0.35, by + 2 + waddle, w * 0.70, h * 0.22);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(-w * 0.35 + 2, by + 6 + waddle, w * 0.70 - 4, 4);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(-w * 0.35 + 3, by + 7 + waddle, 2, 2);
+      g.fillRect( w * 0.35 - 5, by + 7 + waddle, 2, 2);
+      g.fillStyle(0xff8a2a, 1);
+      g.fillRect(w * 0.35 - 1, by + h * 0.12 + waddle, 5, 3);
+    }
+
+    drawCharDragon(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+      const tailWag = Math.sin(now * 0.01) * 2 + speedFrac * 3;
+      g.fillStyle(0x2a9030, 1);
+      g.fillRect(bx - 8, by + h * 0.55 + tailWag, 10, 4);
+      g.fillRect(bx - 12, by + h * 0.58 + tailWag, 5, 3);
+      g.fillStyle(0xfff080, 1);
+      g.fillRect(bx - 14, by + h * 0.60 + tailWag, 3, 2);
+      g.fillStyle(0x1a6a20, 1);
+      if (airborne) {
+        g.fillRect(bx + 3, by + h - 7, 5, 7);
+        g.fillRect(bx + w - 8, by + h - 7, 5, 7);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
+        g.fillRect(bx + 3, by + h - 9 - s, 5, 9);
+        g.fillRect(bx + w - 8, by + h - 9 + s, 5, 9);
+      }
+      g.fillStyle(0x88e080, 1);
+      g.fillRect(bx + 2, by + h * 0.50, w - 4, h * 0.35);
+      g.fillStyle(0x3ac050, 1);
+      g.fillRect(bx, by + h * 0.25, w, h * 0.50);
+      g.fillStyle(0xfff080, 1);
+      g.fillRect(bx + w * 0.2, by + h * 0.22, 3, 3);
+      g.fillRect(bx + w * 0.5, by + h * 0.22, 3, 3);
+      g.fillRect(bx + w * 0.8, by + h * 0.22, 3, 3);
+      const flap = airborne ? Math.sin(now * 0.03) * 4 : 1;
+      g.fillStyle(0x1a6a20, 1);
+      g.fillRect(bx - 2, by + h * 0.22 - 2 - flap, 10, 3);
+      g.fillRect(bx + w - 8, by + h * 0.22 - 2 - flap, 10, 3);
+      g.fillStyle(0x3ac050, 1);
+      g.fillRect(bx + w * 0.45, by + 2, w * 0.55, h * 0.30);
+      g.fillRect(bx + w * 0.85, by + 8, w * 0.30, 5);
+      g.fillStyle(0xfff080, 1);
+      g.fillRect(bx + w * 0.55, by - 2, 2, 4);
+      g.fillRect(bx + w * 0.70, by - 2, 2, 4);
+      g.fillStyle(0xffff40, 1);
+      g.fillRect(bx + w * 0.80, by + 6, 3, 3);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(bx + w * 0.81, by + 7, 2, 2);
+    }
+
+    drawCharTrex(g, o) {
+      const { w, h, airborne, speedFrac, runPhase } = o;
+      const bx = -w / 2, by = -h / 2;
+      const bob = !airborne && speedFrac > 0.05 ? Math.sin(runPhase) * 2 : 0;
+      g.fillStyle(0xc05010, 1);
+      g.fillRect(bx - 10, by + h * 0.55, 12, 5);
+      g.fillRect(bx - 16, by + h * 0.60, 7, 4);
+      g.fillRect(bx - 20, by + h * 0.65, 5, 3);
+      g.fillStyle(0xa04010, 1);
+      if (airborne) {
+        g.fillRect(bx + 2, by + h - 9, 6, 9);
+        g.fillRect(bx + w - 10, by + h - 9, 6, 9);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 4 : 0;
+        g.fillRect(bx + 2, by + h - 11 - s, 6, 11);
+        g.fillRect(bx + w - 10, by + h - 11 + s, 6, 11);
+      }
+      g.fillStyle(0xe07020, 1);
+      g.fillRect(bx, by + h * 0.30 + bob, w, h * 0.55);
+      g.fillStyle(0xffb060, 1);
+      g.fillRect(bx + 2, by + h * 0.55 + bob, w - 4, h * 0.28);
+      g.fillStyle(0xc05010, 1);
+      g.fillRect(bx + w * 0.65, by + h * 0.44 + bob, 3, 4);
+      g.fillStyle(0xe07020, 1);
+      g.fillRect(bx + w * 0.35, by + 2 + bob, w * 0.75, h * 0.32);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + w * 0.90, by + 14 + bob, 2, 2);
+      g.fillRect(bx + w * 0.96, by + 14 + bob, 2, 2);
+      g.fillRect(bx + w * 0.70, by + 6 + bob, 4, 3);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(bx + w * 0.72, by + 7 + bob, 2, 2);
+    }
+
+    drawCharYeti(g, o) {
+      const { w, h, airborne, speedFrac, runPhase } = o;
+      const yw = w + 4;
+      const bx = -yw / 2, by = -h / 2;
+      g.fillStyle(0x888a92, 1);
+      if (airborne) {
+        g.fillRect(bx + 3, by + h - 9, 8, 9);
+        g.fillRect(bx + yw - 11, by + h - 9, 8, 9);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 3 : 0;
+        g.fillRect(bx + 3, by + h - 10 - s, 8, 10);
+        g.fillRect(bx + yw - 11, by + h - 10 + s, 8, 10);
+      }
+      g.fillStyle(0x3a2a1a, 1);
+      g.fillRect(bx + 2, by + h - 3, 9, 3);
+      g.fillRect(bx + yw - 11, by + h - 3, 9, 3);
+      g.fillStyle(0xe4eef4, 1);
+      g.fillRect(bx, by + h * 0.25, yw, h * 0.65);
+      g.fillStyle(0xffffff, 1);
+      for (let i = 0; i < 5; i++) g.fillRect(bx + 2 + i * 5, by + h * 0.30, 3, 2);
+      const armSwing = !airborne && speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 3 : 0;
+      g.fillStyle(0xe4eef4, 1);
+      g.fillRect(bx - 2, by + h * 0.30 + armSwing, 6, h * 0.50);
+      g.fillRect(bx + yw - 4, by + h * 0.30 - armSwing, 6, h * 0.50);
+      g.fillStyle(0x3a2a1a, 1);
+      g.fillRect(bx - 2, by + h * 0.72 + armSwing, 6, 4);
+      g.fillRect(bx + yw - 4, by + h * 0.72 - armSwing, 6, 4);
+      g.fillStyle(0xe4eef4, 1);
+      const hw = yw - 4, hx = -hw / 2, hy = by;
+      g.fillRect(hx, hy, hw, h * 0.28);
+      g.fillStyle(0xf5f5f5, 1);
+      g.fillRect(hx + 2, hy + 6, hw - 4, h * 0.18);
+      g.fillStyle(0x5a3018, 1);
+      g.fillRect(hx + 4, hy + 8, 3, 3);
+      g.fillRect(hx + hw - 7, hy + 8, 3, 3);
+      g.fillStyle(0x3a2a1a, 1);
+      g.fillRect(hx + hw / 2 - 1, hy + 13, 3, 2);
+    }
+
+    drawCharRobot(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+      g.fillStyle(0x505864, 1);
+      if (airborne) {
+        g.fillRect(bx + 3, by + h - 8, 5, 8);
+        g.fillRect(bx + w - 8, by + h - 8, 5, 8);
+      } else {
+        const s = speedFrac > 0.05 ? Math.sin(runPhase) * 2 : 0;
+        g.fillRect(bx + 3, by + h - 10 - s, 5, 10);
+        g.fillRect(bx + w - 8, by + h - 10 + s, 5, 10);
+      }
+      g.fillStyle(0x22252c, 1);
+      g.fillRect(bx + 1, by + h - 3, 9, 3);
+      g.fillRect(bx + w - 10, by + h - 3, 9, 3);
+      g.fillStyle(0xb0b4bc, 1);
+      g.fillRect(bx, by + h * 0.28, w, h * 0.55);
+      g.fillStyle(0x707680, 1);
+      g.fillRect(bx + 2, by + h * 0.50, w - 4, 1);
+      const pulse = 0.4 + 0.3 * Math.abs(Math.sin(now * 0.005));
+      g.fillStyle(0x00e0ff, pulse + 0.3);
+      g.fillRect(bx + w / 2 - 2, by + h * 0.38, 4, 3);
+      const armMove = !airborne && speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 3 : 0;
+      g.fillStyle(0x909398, 1);
+      g.fillRect(bx - 3, by + h * 0.30 + armMove, 4, h * 0.42);
+      g.fillRect(bx + w - 1, by + h * 0.30 - armMove, 4, h * 0.42);
+      g.fillStyle(0xcdd1d8, 1);
+      g.fillRect(bx + 2, by + 2, w - 4, h * 0.22);
+      g.fillStyle(0x707680, 1);
+      g.fillRect(bx + w / 2 - 0.5, by - 4, 1, 4);
+      g.fillStyle(0xff3060, 1);
+      g.fillRect(bx + w / 2 - 1.5, by - 6, 3, 2);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(bx + 3, by + 7, w - 6, 4);
+      g.fillStyle(0x00e0ff, 0.95);
+      g.fillRect(bx + 4, by + 8, w - 8, 2);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(bx + w - 7, by + 8, 2, 1);
+    }
+
+    drawCharSkater(g, o) {
+      const { w, h, airborne, speedFrac, runPhase } = o;
+      const bx = -w / 2, by = -h / 2;
+      const boardW = w + 6, boardX = -boardW / 2, boardY = by + h - 2;
+      g.fillStyle(0xff5050, 1); g.fillRect(boardX, boardY, boardW, 3);
+      g.fillStyle(0x7a1a1a, 1); g.fillRect(boardX, boardY + 3, boardW, 1);
+      g.fillStyle(0xffdf3c, 1);
+      [boardX + 2, boardX + boardW - 6].forEach((wx) => {
+        g.fillRect(wx, boardY + 5, 4, 4);
+        g.fillStyle(0x1a1a1a, 0.7);
+        if (speedFrac > 0.05 && Math.sin(runPhase * 3) > 0) g.fillRect(wx + 1, boardY + 5, 2, 4);
+        else g.fillRect(wx, boardY + 6, 4, 2);
+        g.fillStyle(0xffdf3c, 1);
+      });
+      const legH = h * 0.28 - (airborne ? 4 : 1), legY = boardY - legH;
+      g.fillStyle(0x2040a0, 1);
+      const s = !airborne && speedFrac > 0.05 ? Math.sin(runPhase) * 1.5 : 0;
+      g.fillRect(-w * 0.2 - 2, legY - s, 4, legH);
+      g.fillRect( w * 0.2 - 2, legY + s, 4, legH);
+      const bodyH = h * 0.42, bodyY = by + h * 0.26;
+      g.fillStyle(0x555a66, 1); g.fillRect(bx, bodyY, w, bodyH);
+      g.fillStyle(0xffffff, 1); g.fillRect(bx + w / 2 - 1, bodyY, 2, 6);
+      g.fillStyle(0x404550, 1); g.fillRect(bx + 3, bodyY + bodyH - 6, w - 6, 4);
+      g.fillStyle(0x555a66, 1);
+      if (airborne) {
+        g.fillRect(bx - 4, bodyY + 4, 4, bodyH * 0.65);
+        g.fillRect(bx + w, bodyY + 4, 4, bodyH * 0.65);
+      } else {
+        const a = speedFrac > 0.05 ? Math.sin(runPhase + Math.PI) * 2 : 0;
+        g.fillRect(bx - 2, bodyY + a, 3, bodyH * 0.8);
+        g.fillRect(bx + w - 1, bodyY - a, 3, bodyH * 0.8);
+      }
+      const headW = w - 4, headX = bx + 2, headY = by;
+      g.fillStyle(0xf2d1a8, 1);
+      g.fillRect(headX, headY + 4, headW, h * 0.26 - 4);
+      g.fillStyle(0xff5050, 1);
+      g.fillRect(headX - 1, headY, headW + 2, 6);
+      g.fillRect(headX - 4, headY + 3, 5, 3);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(headX + 1, headY + 2, 4, 1);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(headX + headW - 7, headY + 8, 2, 2);
+      g.fillRect(headX + headW - 3, headY + 8, 2, 2);
+      g.fillRect(headX + headW - 7, headY + 12, 4, 1);
+    }
+
+    drawCharSurfer(g, o) {
+      const { w, h, airborne, speedFrac, runPhase, now } = o;
+      const bx = -w / 2, by = -h / 2;
+      const boardW = w + 16, boardX = -boardW / 2, boardY = by + h - 2;
+      g.fillStyle(0xffffff, 1); g.fillRect(boardX + 2, boardY, boardW - 4, 3);
+      g.fillStyle(0x3ad0e8, 1); g.fillRect(boardX + 4, boardY + 1, boardW - 8, 1);
+      g.fillRect(boardX + 4, boardY + 3, 2, 4);
+      if (!airborne && speedFrac > 0.2) {
+        g.fillStyle(0xb8f0ff, 0.80);
+        g.fillRect(boardX - 4, boardY + 4, 4, 1);
+        g.fillRect(boardX + boardW, boardY + 4, 4, 1);
+      }
+      const legH = h * 0.28, legY = boardY - legH;
+      g.fillStyle(0xe8b88a, 1);
+      const s = !airborne && speedFrac > 0.05 ? Math.sin(runPhase * 0.7) * 1.2 : 0;
+      g.fillRect(-w * 0.22 - 2, legY - s, 4, airborne ? legH - 4 : legH);
+      g.fillRect( w * 0.22 - 2, legY + s, 4, airborne ? legH - 4 : legH);
+      g.fillStyle(0x1a3a6a, 1);
+      g.fillRect(-w * 0.22 - 3, legY, 6, 5);
+      g.fillRect( w * 0.22 - 3, legY, 6, 5);
+      const bodyH = h * 0.32, bodyY = by + h * 0.32;
+      g.fillStyle(0xff7a2a, 1); g.fillRect(bx, bodyY, w, bodyH);
+      g.fillStyle(0xffc070, 1); g.fillRect(bx + 2, bodyY, 3, 3); g.fillRect(bx + w - 5, bodyY, 3, 3);
+      g.fillStyle(0xe8b88a, 1);
+      if (airborne) {
+        g.fillRect(bx - 6, bodyY + 2, 6, 4);
+        g.fillRect(bx + w, bodyY - 3, 6, 4);
+      } else {
+        const a = speedFrac > 0.05 ? Math.sin(now * 0.004) * 2 : 0;
+        g.fillRect(bx - 5, bodyY + 4 + a, 5, 4);
+        g.fillRect(bx + w, bodyY + 4 - a, 5, 4);
+      }
+      const headW = w - 4, headX = bx + 2, headY = by + 1;
+      g.fillStyle(0xe8b88a, 1);
+      g.fillRect(headX, headY + 4, headW, h * 0.26 - 4);
+      g.fillStyle(0xffcc40, 1);
+      g.fillRect(headX, headY, headW, 5);
+      g.fillRect(headX - 3, headY + 2, 4, 6);
+      g.fillRect(headX - 5, headY + 5, 3, 5);
+      g.fillStyle(0x1a1a1a, 1);
+      g.fillRect(headX + 3, headY + 8, headW - 6, 3);
+      g.fillStyle(0x6efff0, 0.85);
+      g.fillRect(headX + headW - 6, headY + 9, 3, 1);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(headX + headW - 7, headY + 13, 4, 1);
     }
 
     // -----------------------------------------------------------
@@ -1300,6 +1960,8 @@
 
     triggerGameOver() {
       this.gameOver = true;
+      this.state = "gameover";
+      if (this.dom && this.dom.pauseBtn) this.dom.pauseBtn.style.display = "none";
       if (this.audio) this.audio.gameOver();
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
@@ -1507,13 +2169,21 @@
 
     update(_t, delta) {
       const dt = Math.min(delta / 1000, 1 / 30);
-      if (this.gameOver) {
+
+      // Non-playing states still render the last frame so the world
+      // sits behind the DOM overlay rather than showing a blank canvas.
+      if (this.state === "title" || this.state === "paused" ||
+          this.state === "countdown" || this.gameOver) {
+        this.drawBackground();
         this.drawWalls();
         this.drawFloors();
+        this.drawGhost();
+        this.drawParticles();
         this.drawPlayer();
-        this.drawHUD();
+        if (!this.gameOver) this.drawHUD();
         return;
       }
+
       this.readInput();
       this.updatePhysics(dt);
       this.updateCombo(dt);
