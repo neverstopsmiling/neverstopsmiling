@@ -206,6 +206,112 @@
     );
   }
 
+  // ================================================================
+  // AudioMgr - procedural Web Audio (no files)
+  // ================================================================
+  class AudioMgr {
+    constructor() {
+      this.ctx = null;
+      this.master = null;
+      this.muted = false;
+    }
+    init() {
+      if (this.ctx) {
+        if (this.ctx.state === "suspended") this.ctx.resume();
+        return;
+      }
+      try {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return;
+        this.ctx = new Ctor();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.55;
+        this.master.connect(this.ctx.destination);
+        if (this.ctx.state === "suspended") this.ctx.resume();
+      } catch (_) {}
+    }
+    toggleMute() {
+      this.muted = !this.muted;
+      if (this.master) this.master.gain.value = this.muted ? 0 : 0.55;
+      return this.muted;
+    }
+    _blip(opts) {
+      if (!this.ctx || this.muted) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime + (opts.delay || 0);
+      const dur = opts.dur || 0.08;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = opts.type || "sine";
+      osc.frequency.setValueAtTime(opts.f0, now);
+      if (opts.f1 != null) {
+        if (opts.linear) osc.frequency.linearRampToValueAtTime(opts.f1, now + dur);
+        else osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.f1), now + dur);
+      }
+      const peak = opts.vol != null ? opts.vol : 0.22;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(peak, now + Math.min(0.01, dur * 0.2));
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(gain).connect(this.master);
+      osc.start(now);
+      osc.stop(now + dur + 0.02);
+    }
+    _noise(dur, vol, bp) {
+      if (!this.ctx || this.muted) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.value = vol;
+      if (bp) {
+        const f = ctx.createBiquadFilter();
+        f.type = "bandpass"; f.frequency.value = bp; f.Q.value = 6;
+        src.connect(f).connect(g).connect(this.master);
+      } else {
+        src.connect(g).connect(this.master);
+      }
+      src.start(now);
+      src.stop(now + dur + 0.02);
+    }
+    jump(sf) {
+      this._blip({ type: "square",   f0: 140, f1: 320 + sf * 300, dur: 0.08, vol: 0.22 });
+      this._blip({ type: "triangle", f0: 280, f1: (320 + sf * 300) * 1.5, dur: 0.08, vol: 0.08 });
+    }
+    land(impact) {
+      this._blip({ type: "sine", f0: 160, f1: 60, dur: 0.06, vol: 0.20 + impact * 0.1 });
+      this._noise(0.05, 0.08 + impact * 0.05, 220);
+    }
+    wallBounce() {
+      this._blip({ type: "triangle", f0: 1400, f1: 2600, dur: 0.05, vol: 0.20, linear: true });
+      this._blip({ type: "square",   f0: 900,  f1: 1700, dur: 0.04, vol: 0.10, linear: true, delay: 0.005 });
+    }
+    comboReward(tier) {
+      const base = 523 + tier * 40;
+      [base, base * 1.26, base * 1.50].forEach((f, i) =>
+        this._blip({ type: "triangle", f0: f, dur: 0.18, vol: 0.18, delay: i * 0.09 })
+      );
+    }
+    hurryUp() {
+      this._blip({ type: "square", f0: 880, f1: 600, dur: 0.1, vol: 0.22, linear: true });
+      this._blip({ type: "square", f0: 880, f1: 600, dur: 0.1, vol: 0.22, linear: true, delay: 0.14 });
+    }
+    gameOver() {
+      [523, 440, 349, 262, 196].forEach((f, i) =>
+        this._blip({ type: "triangle", f0: f, dur: 0.22, vol: 0.20, delay: i * 0.18 })
+      );
+    }
+    milestone() {
+      [523, 659, 784, 1047].forEach((f, i) =>
+        this._blip({ type: "triangle", f0: f, dur: 0.22, vol: 0.20, delay: i * 0.1 })
+      );
+    }
+  }
+
   class GameScene extends Phaser.Scene {
     constructor() { super("game"); }
 
@@ -232,6 +338,12 @@
       this.cameras.main.setBackgroundColor("#05080f");
 
       this.scale.on("resize", this.onResize, this);
+
+      this.audio = new AudioMgr();
+      // Browsers require a user gesture to kick AudioContext
+      this.input.once("pointerdown", () => this.audio.init());
+      this.input.keyboard.on("keydown", () => this.audio.init());
+      this.input.keyboard.on("keydown-M", () => this.audio.toggleMute());
 
       this.setupInput();
       this.resetRun();
@@ -579,6 +691,7 @@
         }
         p.rotation = 0;
         this.jumpBufferUntil = 0;
+        if (this.audio) this.audio.jump(speedFrac);
       }
 
       // Gravity + integrate
@@ -686,8 +799,10 @@
       const prevFloor = p.currentFloor;
       p.currentFloor = toFloor;
 
-      // Landing particle burst
+      // Landing particle burst + sound
       this.spawnLandParticles(p.x, floor.y, this.floorTheme(floor.n));
+      const impact = Phaser.Math.Clamp((p.prevY > floor.y ? (p.prevY - floor.y) / 200 : 0), 0, 1);
+      if (this.audio) this.audio.land(impact);
 
       // Flip bonus on landing
       const flips = Math.max(0, Math.floor(Math.abs(p.rotation) / (Math.PI * 2)));
@@ -700,6 +815,7 @@
           lsSet(LS_KEYS.bestFlips, this.bestFlips);
         }
         this.spawnFlipPopup(flips, bonus);
+        if (this.audio) this.audio.comboReward(Math.min(4, flips));
       }
       p.rotation = 0;
       p.rotRate = 0;
@@ -771,6 +887,7 @@
     }
 
     triggerMilestone(n) {
+      if (this.audio) this.audio.milestone();
       const S = Math.min(this.W, this.H);
       const msg = n >= 1000 ? `FLOOR ${n}!\nLEGEND.`
                 : n >= 500  ? `FLOOR ${n}!\nINCREDIBLE!`
@@ -856,6 +973,8 @@
         (n > 100 && (n - 100) % 25 === 0) ? "GODLIKE!" : null;
       if (!word) return;
       this.spawnRewardPopup(word);
+      const tier = n >= 100 ? 5 : n >= 50 ? 4 : n >= 30 ? 3 : n >= 20 ? 2 : n >= 10 ? 1 : 0;
+      if (this.audio) this.audio.comboReward(tier);
     }
 
     spawnRewardPopup(text) {
@@ -900,7 +1019,7 @@
     }
 
     onWallBounce() {
-      // Phase 7 plays audio here. Phase 6 adds particles.
+      if (this.audio) this.audio.wallBounce();
     }
 
     // -----------------------------------------------------------
@@ -1020,6 +1139,7 @@
     flashHurryUp() {
       this.hurryUntil = this.time.now + 1400;
       if (this.dom && this.dom.hurry) this.dom.hurry.style.display = "block";
+      if (this.audio) this.audio.hurryUp();
     }
     tickHurryUp() {
       if (!this.dom || !this.dom.hurry) return;
@@ -1040,6 +1160,7 @@
 
     triggerGameOver() {
       this.gameOver = true;
+      if (this.audio) this.audio.gameOver();
       if (this.player.highestFloor > this.best.floor) {
         this.best.floor = this.player.highestFloor;
         lsSet(LS_KEYS.bestFloor, this.best.floor);
