@@ -309,10 +309,10 @@
 
   const CFG = {
     // Horizontal
-    MAX_H_SPEED: 400,
-    GROUND_ACCEL: 1000,
-    GROUND_FRICTION: 1333,
-    AIR_ACCEL: 600,
+    MAX_H_SPEED: 480,
+    GROUND_ACCEL: 1400,
+    GROUND_FRICTION: 1000,
+    AIR_ACCEL: 840,
 
     // Vertical / jump
     GRAVITY: 800,
@@ -674,6 +674,7 @@
       this.state = "countdown";
       this.jumpBufferUntil = 0;
       this.touchLeft = this.touchRight = false;
+      if (this._pointers) this._pointers = {};
       this._startCountdown(3, () => {
         this.state = "playing";
         this.dom.pauseBtn.style.display = "block";
@@ -890,23 +891,35 @@
     }
 
     _setupTouch() {
+      // Per-pointer tracking so lifting one finger doesn't kill the
+      // direction held by the other. This is what makes two-thumb
+      // play feel like the original (hold direction + tap to jump).
+      this._pointers = {};
+
       this.input.on("pointerdown", (pointer) => {
         if (this.gameOver) return;
-        // Tap anywhere = jump (buffered)
         this.jumpBufferUntil = this.time.now + CFG.JUMP_BUFFER_MS;
-        // And set touch-steer side
-        if (pointer.x < this.W / 2) this.touchLeft = true;
-        else this.touchRight = true;
+        this._pointers[pointer.id] = pointer.x < this.W / 2 ? "left" : "right";
+        this._syncTouchFromPointers();
       });
       this.input.on("pointermove", (pointer) => {
         if (this.gameOver || !pointer.isDown) return;
-        if (pointer.x < this.W / 2) { this.touchLeft = true;  this.touchRight = false; }
-        else                        { this.touchRight = true; this.touchLeft = false;  }
+        this._pointers[pointer.id] = pointer.x < this.W / 2 ? "left" : "right";
+        this._syncTouchFromPointers();
       });
-      this.input.on("pointerup", () => {
-        this.touchLeft = false;
-        this.touchRight = false;
+      this.input.on("pointerup", (pointer) => {
+        delete this._pointers[pointer.id];
+        this._syncTouchFromPointers();
       });
+    }
+
+    _syncTouchFromPointers() {
+      this.touchLeft = false;
+      this.touchRight = false;
+      for (const id in this._pointers) {
+        if (this._pointers[id] === "left")  this.touchLeft = true;
+        if (this._pointers[id] === "right") this.touchRight = true;
+      }
     }
 
     readInput() {
@@ -1023,6 +1036,8 @@
       // Run state
       this.gameOver = false;
       this.score = 0;
+      // Clear stale touch pointers from previous run
+      if (this._pointers) this._pointers = {};
       this.runStartTime = this.time ? this.time.now : 0;
 
       // Combo
