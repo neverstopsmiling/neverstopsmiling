@@ -516,14 +516,6 @@
   class GameScene extends Phaser.Scene {
     constructor() { super("game"); }
 
-    // Preload guarantees textures are READY before create() runs.
-    // More reliable than addBase64() which is async and fails on iOS.
-    preload() {
-      this.load.image("bg-ice",    ASSETS.bgIce);
-      this.load.image("floor-ice", ASSETS.floorIce);
-      this.load.image("wall-ice",  ASSETS.wallIce);
-    }
-
     create() {
       this.W = this.scale.gameSize.width;
       this.H = this.scale.gameSize.height;
@@ -542,8 +534,28 @@
       // to handle thumb-over-thumb switching without starvation.
       this.input.addPointer(2);
 
-      // Build art sprites (textures guaranteed loaded from preload)
-      this._buildArtSprites();
+      // Load art via native DOM Image (bypasses Phaser's loader entirely).
+      // Data URIs load synchronously in the browser, onload fires immediately.
+      this._artReady = false;
+      this._floorPool = [];
+      const artKeys = [
+        ["bg-ice",    ASSETS.bgIce],
+        ["floor-ice", ASSETS.floorIce],
+        ["wall-ice",  ASSETS.wallIce],
+      ];
+      let remaining = artKeys.length;
+      artKeys.forEach(([key, uri]) => {
+        const img = new Image();
+        img.onload = () => {
+          this.textures.addImage(key, img);
+          remaining--;
+          if (remaining <= 0) {
+            this._artReady = true;
+            this._buildArtSprites();
+          }
+        };
+        img.src = uri;
+      });
 
       // Render layers (depth-ordered)
       this.bgGfx        = this.add.graphics().setDepth(-10);
@@ -2146,6 +2158,7 @@
     }
 
     _updateArtSprites() {
+      if (!this._artReady) return;
       // Background parallax
       if (this._bgSprite) {
         this._bgSprite.tilePositionY = (this.cameraY || 0) * 0.3;
